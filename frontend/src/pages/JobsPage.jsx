@@ -3,9 +3,11 @@ import { api } from "../api.js";
 import { COLUMNS, ago, fmtDate, navigate, usePoll } from "../lib.js";
 import { Pill, Spinner } from "../ui.jsx";
 import PostJobModal from "../components/PostJobModal.jsx";
+import Insights from "../components/Insights.jsx";
 
 export default function JobsPage() {
   const { data, error, loading, reload } = usePoll(() => api.jobs(), 10000);
+  const ins = usePoll(() => api.insights(), 20000);
   const [filter, setFilter] = useState("open");
   const [posting, setPosting] = useState(false);
   const jobs = useMemo(() => data?.jobs || [], [data]);
@@ -14,12 +16,14 @@ export default function JobsPage() {
 
   return (
     <main className="page">
-      <div className="page-head">
+      {ins.data ? <Insights data={ins.data} onPost={() => setPosting(true)} /> : !ins.error && <div className="hero skeleton" />}
+
+      <div className="page-head" style={{ marginTop: 34 }}>
         <div>
-          <h1>Jobs</h1>
+          <h2>Jobs</h2>
           <p className="muted">Every posted role and where its candidates are. Open one to see its board.</p>
         </div>
-        <button className="btn primary" onClick={() => setPosting(true)}>+ Post a job</button>
+        {!ins.data && <button className="btn primary shine" onClick={() => setPosting(true)}>+ Post a job</button>}
       </div>
 
       {error && !data && (
@@ -46,8 +50,8 @@ export default function JobsPage() {
         </div>
       ) : (
         <div className="job-list">
-          {shown.map((j) => (
-            <JobRow key={j.job_id} job={j} />
+          {shown.map((j, i) => (
+            <JobRow key={j.job_id} job={j} i={i} />
           ))}
         </div>
       )}
@@ -58,6 +62,7 @@ export default function JobsPage() {
           onPosted={(id) => {
             setPosting(false);
             reload();
+            ins.reload();
             navigate(`/jobs/${encodeURIComponent(id)}`);
           }}
         />
@@ -66,21 +71,21 @@ export default function JobsPage() {
   );
 }
 
-function JobRow({ job }) {
+function JobRow({ job, i }) {
   const c = job.counts || {};
   const total = job.candidate_count || 0;
   const needsYou = (c.resume_review || 0) + (c.final_review || 0);
   const href = `/jobs/${encodeURIComponent(job.job_id)}`;
   return (
     <a
-      className="card job-row"
+      className="card job-row fade-up lift"
       href={href}
       onClick={(e) => {
         if (e.metaKey || e.ctrlKey) return;
         e.preventDefault();
         navigate(href);
       }}
-      style={{ textDecoration: "none", color: "inherit" }}
+      style={{ textDecoration: "none", color: "inherit", "--i": i }}
     >
       <div style={{ minWidth: 0 }}>
         <div className="row">

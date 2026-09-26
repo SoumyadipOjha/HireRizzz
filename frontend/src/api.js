@@ -55,6 +55,7 @@ const q = (jobId) => (jobId ? `?job=${encodeURIComponent(jobId)}` : "");
 
 export const api = {
   jobs: () => request("/api/jobs"),
+  insights: () => request("/api/insights"),
   job: (id) => request(`/api/jobs/${encodeURIComponent(id)}`),
   setJobStatus: (id, status) => request(`/api/jobs/${encodeURIComponent(id)}/status`, { method: "POST", body: { status } }),
   overview: (jobId) => request(`/api/overview${q(jobId)}`),

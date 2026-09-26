@@ -284,6 +284,12 @@ class DashboardAPI:
         return {**self._job_summary(rec, entries), "job": rec.job, "questions": rec.questions,
                 "columns": list(BOARD_COLUMNS), "candidates": entries, "is_default": rec.is_default}
 
+    def insights(self) -> dict:
+        from ..insights import compute
+
+        self.config.jobs.refresh()
+        return compute(self.config, self._index())
+
     def set_job_status(self, job_id: str, body: dict) -> dict:
         status = body.get("status")
         if status not in ("open", "closed"):
@@ -633,6 +639,8 @@ class Handler(BaseHTTPRequestHandler):
                 return self._json(self.api.overview(job_q))
             if path == "/api/jobs":
                 return self._json(self.api.jobs())
+            if path == "/api/insights":
+                return self._json(self.api.insights())
             if m := _JOB_API.match(path):
                 return self._json(self.api.job(m.group(1)))
             if path.startswith("/api/candidate/"):

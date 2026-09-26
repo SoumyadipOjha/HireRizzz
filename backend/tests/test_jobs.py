@@ -77,3 +77,22 @@ def test_closed_jobs_and_unknown_jobs(ctx):
     assert ctx.config.jobs.refresh().get(second).status == "closed"   # persisted
     with pytest.raises(JobError):
         ingest(ctx, job_id="no-such-job")
+
+
+def test_insights_summarise_the_pipeline(ctx):
+    from screening.insights import compute
+
+    ctx.config.settings.approvals.require_shortlist_approval = True
+    ingest(ctx)
+    run_stage1(ctx, FakeLLM())
+    run_stage2(ctx, FakeLLM())
+    decisions = {e.candidate_id: e.stages["stage2_shortlisting"].decision for e in ctx.index.all()}
+    first = next(iter(decisions))
+    decisions[first] = "rejected" if decisions[first] == "shortlisted" else "shortlisted"   # one override
+    approve_shortlist(ctx, decisions, by="Asha")
+    ins = compute(ctx.config, ctx.config.store.load_index())
+    n = len(decisions)
+    assert ins["totals"]["candidates"] == n and sum(ins["columns"].values()) == n
+    assert len(ins["resume_scores"]) == n and ins["ai"] == {"decisions": n, "agreed": n - 1, "overrides": 1}
+    assert len(ins["daily"]) == 14 and ins["daily"][-1]["applied"] == n and ins["daily"][-1]["decided"] == n
+    assert ins["per_job"][0]["candidates"] == n and ins["hours_saved"] > 0
