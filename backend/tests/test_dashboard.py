@@ -35,10 +35,30 @@ def _get(url):
         return r.status, r.headers.get("Content-Type"), r.read()
 
 
-def test_page_and_api(server):
+@pytest.fixture
+def built_frontend(tmp_path, monkeypatch):
+    """A stand-in for `npm run build` output (frontend/dist)."""
+    dist = tmp_path / "frontend" / "dist"
+    (dist / "assets").mkdir(parents=True)
+    (dist / "index.html").write_text('<div id="root"></div><script src="/assets/app.js"></script>', encoding="utf-8")
+    (dist / "assets" / "app.js").write_text("console.log(1)", encoding="utf-8")
+    (dist / "interview.html").write_text("<title>interview</title>", encoding="utf-8")
+    monkeypatch.setenv("HIRERIZZ_FRONTEND_DIR", str(tmp_path / "frontend"))
+    return dist
+
+
+def test_page_and_api(server, built_frontend):
     base, ctx = server
     status, ctype, body = _get(base + "/")
-    assert status == 200 and ctype.startswith("text/html") and b"Screening Dashboard" in body
+    assert status == 200 and ctype.startswith("text/html") and b'<div id="root">' in body
+    for path in ("/jobs", "/jobs/some-job?c=x"):   # the app's own routes load the app
+        assert b'<div id="root">' in _get(base + path)[2]
+    status, ctype, body = _get(base + "/assets/app.js")
+    assert status == 200 and ctype.startswith("application/javascript") and body == b"console.log(1)"
+    for bad in ("/assets/missing.js", "/assets/..%2F..%2Fsecret.txt"):
+        with pytest.raises(urllib.error.HTTPError) as e:
+            _get(base + bad)
+        assert e.value.code == 404
 
     ov = json.loads(_get(base + "/api/overview")[2])
     assert len(ov["index"]["candidates"]) == 3 and ov["demo"] is False
