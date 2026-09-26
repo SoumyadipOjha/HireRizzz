@@ -54,7 +54,7 @@ export default function Insights({ data, onPost }) {
       <div className="hero fade-up">
         <div className="hero-glow" aria-hidden="true" />
         <div>
-          <div className="eyebrow">Hiring command center</div>
+          <div className="eyebrow">Hiring got rizz</div>
           <h1>{greet}, <span className="grad-text">let's hire someone great.</span></h1>
           <p className="muted">
             {t.need_review > 0
