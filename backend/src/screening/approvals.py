@@ -61,6 +61,38 @@ def awaiting_final_review(entry: CandidateEntry) -> bool:
             and resume_decision(entry) == "shortlisted" and not entry.fraud_blocked)
 
 
+BOARD_COLUMNS = ("applied", "resume_review", "interview", "final_review", "selected", "rejected", "fraud")
+
+
+def board_column(entry: CandidateEntry) -> str:
+    """Where the candidate sits on a job's board.
+
+    applied        resume being read / scored (or that failed)
+    resume_review  scored, waiting for a recruiter to approve the resume shortlist
+    interview      invited to (or in) the screening call, or being evaluated
+    final_review   interviewed and evaluated, waiting for the manager's decision
+    selected / rejected   decided (rejected also covers the resume stage and opting out)
+    fraud          stopped by the credibility checks
+    """
+    st = entry.stages
+    if entry.fraud_blocked:
+        return "fraud"
+    final = entry.reviews.get("final")
+    if final is not None:
+        return "selected" if final.decision == "shortlisted" else "rejected"
+    if awaiting_shortlist_review(entry) and st["stage3_calling"].status not in ("awaiting", "success"):
+        return "resume_review"  # the AI's suggestion (shortlist or reject) waits for a recruiter
+    if resume_decision(entry) == "rejected":
+        return "rejected"
+    if st["stage3_calling"].status == "skipped" and st["stage3_calling"].output_path:
+        return "rejected"  # opted out during the call
+    if awaiting_final_review(entry):
+        return "final_review"
+    if st["stage2_shortlisting"].status == "success":
+        return "interview"
+    return "applied"
+
+
 # ---------------------------------------------------------------------------
 # Gates
 # ---------------------------------------------------------------------------
@@ -169,7 +201,7 @@ def _mailer_or_none(ctx: RunContext) -> Mailer | None:
 
 def send_result(ctx: RunContext, entry: CandidateEntry, gate: ReviewGate, kind: str,
                 mailer: Mailer | None) -> Notification:
-    job = ctx.config.job
+    job = ctx.config.for_job(entry.job_id).job
     cid = entry.candidate_id
     try:
         name, address = candidate_contact(ctx.config, entry)
@@ -204,11 +236,14 @@ RESULT_COLUMNS = ["list", "name", "email", "final_score", "resume_score", "inter
                   "candidate_id"]
 
 
-def final_results(ctx: RunContext) -> dict[str, list[dict]]:
-    """Everyone interviewed and evaluated, split into the final lists.
+def final_results(ctx: RunContext, job_id: str | None = None) -> dict[str, list[dict]]:
+    """Everyone interviewed and evaluated (for one job, or all jobs), split into the final lists.
     `awaiting_approval` holds evaluated candidates the manager hasn't decided on yet."""
     lists: dict[str, list[dict]] = {"shortlisted": [], "rejected": [], "awaiting_approval": []}
+    jobs = ctx.config.jobs
     for entry in ctx.index.reload().all():
+        if job_id is not None and jobs.candidate_job(entry) != job_id:
+            continue
         s4 = entry.stages["stage4_evaluation"]
         if s4.status != "success" or resume_decision(entry) != "shortlisted":
             continue

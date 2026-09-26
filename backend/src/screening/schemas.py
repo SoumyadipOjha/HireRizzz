@@ -80,6 +80,7 @@ class CandidateEntry(_Model):
     source_sha256: str | None
     ingested_at: str
     updated_at: str
+    job_id: str | None = None              # the job applied to (None: from before jobs = the default job)
     display_name: str | None = None
     current_stage: StageName = "stage1_extraction"
     overall_status: OverallStatus = "active"

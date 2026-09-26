@@ -38,6 +38,18 @@ def _frontend_dir() -> Path:
     return Path(env) if env else PROJECT_ROOT.parent / "frontend"
 
 
+def _static_root() -> Path:
+    """The built React app (frontend/dist, `npm run build`) if there is one, else frontend/public
+    (the interview page works without a build; the dashboard needs one)."""
+    d = _frontend_dir()
+    return d / "dist" if (d / "dist" / "index.html").is_file() else d / "public"
+
+
+_TYPES = {".js": "application/javascript; charset=utf-8", ".css": "text/css; charset=utf-8",
+          ".html": "text/html; charset=utf-8", ".svg": "image/svg+xml", ".png": "image/png",
+          ".ico": "image/x-icon", ".json": "application/json; charset=utf-8", ".woff2": "font/woff2"}
+
+
 def cors_origins() -> set[str]:
     """Sites allowed to call this API from a browser, e.g. the Vercel frontend (CORS_ORIGINS, comma-separated)."""
     return {o.strip().rstrip("/") for o in os.environ.get("CORS_ORIGINS", "").split(",") if o.strip()}
@@ -63,6 +75,8 @@ _UUID = re.compile(r"^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-
 _LINKEDIN_API = re.compile(r"^/api/candidate/([0-9a-f-]{36})/linkedin$")
 _CLEAR_FRAUD_API = re.compile(r"^/api/candidate/([0-9a-f-]{36})/clear-fraud$")
 _CLARIFY_API = re.compile(r"^/api/candidate/([0-9a-f-]{36})/request-clarification$")
+_JOB_API = re.compile(r"^/api/jobs/([A-Za-z0-9_-]{1,80})$")
+_JOB_STATUS_API = re.compile(r"^/api/jobs/([A-Za-z0-9_-]{1,80})/status$")
 _INTERVIEW_API = re.compile(r"^/api/interview/([A-Za-z0-9_-]+)/(info|code|verify|start|turn|end)$")
 _CSP = ("default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; "
         "connect-src 'self'; img-src 'self' data:; frame-ancestors 'none'; base-uri 'none'; form-action 'none'")
@@ -118,10 +132,15 @@ class DashboardAPI:
 
         from ..resume_reader import SUPPORTED
 
+        from ..stage0_ingest import resumes_dir
+
         files = body.get("files")
         if not isinstance(files, list) or not files or len(files) > 20:
             raise ValueError("files must be a list of 1-20 {name, data} objects")
-        folder = self.config.data.input_resumes
+        job_id = self._job_id(body.get("job_id"))
+        if self.config.jobs.get(job_id).status == "closed":
+            raise ValueError("this job is closed: reopen it to add resumes")
+        folder = resumes_dir(self.ctx, job_id)
         folder.mkdir(parents=True, exist_ok=True)
         saved = []
         for f in files:
@@ -145,11 +164,22 @@ class DashboardAPI:
             target.write_bytes(data)
             saved.append(target.name)
         if not self.processing["running"]:
-            self.processing.update(running=True, message=f"Screening {len(saved)} resume(s)…")
-            threading.Thread(target=self._screen_uploads, name="screen-uploads", daemon=True).start()
-        return {"saved": saved}
+            self.processing.update(running=True, message=f"Screening {len(saved)} resume(s)…", job_id=job_id)
+            threading.Thread(target=self._screen_uploads, args=(job_id,), name="screen-uploads", daemon=True).start()
+        return {"saved": saved, "job_id": job_id}
 
-    def _screen_uploads(self) -> None:
+    def _job_id(self, value) -> str:
+        """A job id from a request (missing = the default job). Unknown job -> KeyError (404)."""
+        from ..jobs import JobError
+
+        if value is not None and not isinstance(value, str):
+            raise ValueError("job_id must be a string")
+        try:
+            return self.config.jobs.get(value or None).job["job_id"]
+        except JobError as e:
+            raise KeyError(str(e)) from None
+
+    def _screen_uploads(self, job_id: str | None = None) -> None:
         from ..llm import make_client
         from ..stage0_ingest import ingest
         from ..stage1_extract import run_stage1
@@ -158,7 +188,7 @@ class DashboardAPI:
         try:
             llm = self._llm_factory() if self._llm_factory else make_client(self.config)
             with self.ctx.lock:
-                ingest(self.ctx)
+                ingest(self.ctx, job_id=job_id)
                 s1 = run_stage1(self.ctx, llm)
                 s2 = run_stage2(self.ctx, llm)
             failed = len(s1.failed) + len(s2.failed)
@@ -186,32 +216,97 @@ class DashboardAPI:
         return {"draft": draft_jd(self.config, llm, brief, company_name=company)}
 
     def approve_jd(self, body: dict) -> dict:
+        """Post the (edited) draft as a new job, or update an existing one (body.job_id)."""
         from ..jd_writer import JDError, approve_jd
 
         job, questions = body.get("job"), body.get("questions")
         if not isinstance(job, dict) or not isinstance(questions, list):
             raise JDError("job (object) and questions (list) are required")
+        update = self._job_id(body["job_id"]) if body.get("job_id") else None
         with self.ctx.lock:
-            scored = sum(e.stages["stage2_shortlisting"].status == "success" for e in self.ctx.index.reload().all())
+            jobs = self.config.jobs
+            scored = sum(e.stages["stage2_shortlisting"].status == "success" and jobs.candidate_job(e) == update
+                         for e in self.ctx.index.reload().all()) if update else 0
             return approve_jd(self.config, job, questions, by=body.get("by") if isinstance(body.get("by"), str) else "",
-                              scored_candidates=scored)
+                              scored_candidates=scored, job_id=update)
 
-    def send_results(self) -> dict:
+    # -------------------------------------------------------------- jobs
+
+    def _entries(self, job_id: str | None = None) -> list[dict]:
+        """Index entries (as dicts), each with its job_id resolved and its board column."""
+        from ..approvals import board_column
+        from ..schemas import CandidateEntry
+
+        default = self.config.jobs.default_id()
+        out = []
+        for raw in (self._index().get("candidates") or {}).values():
+            try:
+                entry = CandidateEntry.model_validate(raw)
+            except ValueError:
+                continue
+            jid = entry.job_id or default
+            if job_id is not None and jid != job_id:
+                continue
+            out.append({**raw, "job_id": jid, "board_column": board_column(entry)})
+        return out
+
+    def _job_summary(self, rec, entries: list[dict]) -> dict:
+        from ..approvals import BOARD_COLUMNS
+
+        counts = {c: 0 for c in BOARD_COLUMNS}
+        for e in entries:
+            counts[e["board_column"]] += 1
+        j = rec.job
+        return {"job_id": j["job_id"], "title": j["title"], "company_name": j["company_name"],
+                "location": j.get("location"), "status": rec.status, "created_at": rec.created_at,
+                "posted_by": rec.posted_by or j.get("approved_by"), "candidate_count": len(entries),
+                "counts": counts, "must_have_skills": j.get("must_have_skills", []),
+                "last_activity": max((e.get("updated_at") or "" for e in entries), default=None) or None}
+
+    def jobs(self) -> dict:
+        from ..approvals import BOARD_COLUMNS
+
+        self.config.jobs.refresh()
+        by_job: dict[str, list[dict]] = {}
+        for e in self._entries():
+            by_job.setdefault(e["job_id"], []).append(e)
+        return {"jobs": [self._job_summary(r, by_job.get(r.job["job_id"], [])) for r in self.config.jobs.all()],
+                "columns": list(BOARD_COLUMNS)}
+
+    def job(self, job_id: str) -> dict:
+        from ..approvals import BOARD_COLUMNS
+
+        job_id = self._job_id(job_id)
+        rec = self.config.jobs.get(job_id)
+        entries = self._entries(job_id)
+        return {**self._job_summary(rec, entries), "job": rec.job, "questions": rec.questions,
+                "columns": list(BOARD_COLUMNS), "candidates": entries, "is_default": rec.is_default}
+
+    def set_job_status(self, job_id: str, body: dict) -> dict:
+        status = body.get("status")
+        if status not in ("open", "closed"):
+            raise ValueError("status must be open or closed")
+        rec = self.config.jobs.set_status(self._job_id(job_id), status)
+        return {"job_id": rec.job["job_id"], "status": rec.status}
+
+    def send_results(self, body: dict | None = None) -> dict:
         from ..approvals import send_final_results
 
+        job_id = self._job_id(body["job_id"]) if body and body.get("job_id") else None
         with self.ctx.lock:
-            return {"emails": send_final_results(self.ctx, self._mailer())}
+            only = {e["candidate_id"] for e in self._entries(job_id)} if job_id else None
+            return {"emails": send_final_results(self.ctx, self._mailer(), only=only)}
 
-    def results(self) -> dict:
+    def results(self, job_id: str | None = None) -> dict:
         from ..approvals import final_results
 
         with self.ctx.lock:
-            return final_results(self.ctx)
+            return final_results(self.ctx, self._job_id(job_id) if job_id else None)
 
-    def results_csv(self) -> str:
+    def results_csv(self, job_id: str | None = None) -> str:
         from ..approvals import results_csv
 
-        return results_csv(self.results())
+        return results_csv(self.results(job_id))
 
     def _index(self) -> dict:
         try:
@@ -222,11 +317,19 @@ class DashboardAPI:
     def _failures(self) -> list[dict]:
         return self.store.failures()[::-1]  # newest first
 
-    def overview(self) -> dict:
+    def overview(self, job_id: str | None = None) -> dict:
+        """Settings, and the candidates (all jobs, or one job's with ?job=)."""
         cfg, data = self.config, self.config.data
         job_error = None
+        index = self._index()
         try:
-            job = cfg.job.model_dump()
+            jid = self._job_id(job_id)
+            job = cfg.for_job(jid).job.model_dump()
+            index = {**index, "candidates": {e["candidate_id"]: e for e in self._entries(jid if job_id else None)}}
+        except KeyError:
+            if job_id:
+                raise
+            job, job_error = None, "no job posted yet"
         except Exception as e:  # show config problems on the page instead of a blank screen
             job, job_error = None, str(e)
         try:
@@ -235,7 +338,7 @@ class DashboardAPI:
         except ConfigError as e:
             llm_error = str(e)
         return {
-            "index": self._index(),
+            "index": index,
             "llm_error": llm_error,
             "job": job,
             "job_error": job_error,
@@ -268,6 +371,14 @@ class DashboardAPI:
         if s3 and s3.get("transcript_path"):
             transcript = self.store.get_text(s3["transcript_path"])
         answers = answers_for(self.config, s3) if s3 else None
+        try:
+            from ..approvals import board_column
+            from ..schemas import CandidateEntry
+
+            entry = {**entry, "job_id": entry.get("job_id") or self.config.jobs.default_id(),
+                     "board_column": board_column(CandidateEntry.model_validate(entry))}
+        except ValueError:
+            pass
         credibility = self._credibility(cid, entry)
         try:
             inv = self.invites.active_for(cid)
@@ -368,10 +479,11 @@ class DashboardAPI:
             rec = check_linkedin(self.ctx, llm, cid, path, Path(name).name[:120])
         return rec.model_dump(mode="json")
 
-    def all_answers(self) -> list[dict]:
-        """Every candidate who has had a screening call, with their answers question by question."""
+    def all_answers(self, job_id: str | None = None) -> list[dict]:
+        """Every candidate who has had a screening call (all jobs, or one), with their answers."""
         out = []
-        for cid, e in (self._index().get("candidates") or {}).items():
+        for e in self._entries(self._job_id(job_id) if job_id else None):
+            cid = e["candidate_id"]
             ref = (e.get("stages", {}).get("stage3_calling") or {}).get("output_path")
             s3 = self.store.get_record(ref) if ref else None
             if not s3:
@@ -438,12 +550,25 @@ class Handler(BaseHTTPRequestHandler):
         self._send(status, json.dumps(obj, ensure_ascii=False).encode("utf-8"), "application/json; charset=utf-8")
 
     def _page(self, name: str, extra: dict | None = None) -> None:
-        f = _frontend_dir() / name
+        f = _static_root() / name
         if not f.is_file():  # API-only deployment: the pages live on the frontend host
             return self._json({"error": "This is the HireRizz API. Open the frontend site instead."},
                               HTTPStatus.NOT_FOUND)
-        ctype = "application/javascript; charset=utf-8" if name.endswith(".js") else "text/html; charset=utf-8"
-        self._send(200, f.read_bytes(), ctype, extra)
+        self._send(200, f.read_bytes(), _TYPES.get(f.suffix.lower(), "application/octet-stream"), extra)
+
+    def _spa_fallback(self, path: str) -> None:
+        """Files of the built frontend (/assets/...), and index.html for the app's own routes (/jobs/<id>)."""
+        if path.startswith("/api/"):
+            return self._json({"error": "not found"}, HTTPStatus.NOT_FOUND)
+        root = _static_root().resolve()
+        rel = path.lstrip("/")
+        if rel and "." in rel.rsplit("/", 1)[-1]:
+            f = (root / rel).resolve()
+            if root in f.parents and f.is_file():
+                return self._page(f.relative_to(root).as_posix())
+        elif path == "/jobs" or path.startswith("/jobs/"):
+            return self._page("index.html")
+        return self._json({"error": "not found"}, HTTPStatus.NOT_FOUND)
 
     def _body(self, limit: int = MAX_BODY) -> dict:
         n = int(self.headers.get("Content-Length") or 0)
@@ -477,8 +602,14 @@ class Handler(BaseHTTPRequestHandler):
                 return self._json({"error": "not found"}, HTTPStatus.NOT_FOUND)
             if path in ("/", "/index.html"):
                 return self._page("index.html")
+            q = {k: v[0] for k, v in parse_qs(url.query).items()}
+            job_q = q.get("job") or None
             if path == "/api/overview":
-                return self._json(self.api.overview())
+                return self._json(self.api.overview(job_q))
+            if path == "/api/jobs":
+                return self._json(self.api.jobs())
+            if m := _JOB_API.match(path):
+                return self._json(self.api.job(m.group(1)))
             if path.startswith("/api/candidate/"):
                 cid = path.rsplit("/", 1)[-1]
                 if not _UUID.match(cid):
@@ -488,19 +619,21 @@ class Handler(BaseHTTPRequestHandler):
             if path == "/api/failures":
                 return self._json(self.api.failures())
             if path == "/api/results":
-                return self._json(self.api.results())
+                return self._json(self.api.results(job_q))
             if path == "/api/answers":
-                return self._json(self.api.all_answers())
+                return self._json(self.api.all_answers(job_q))
             if path == "/api/jd/draft":
                 return self._json(self.api.jd_draft())
             if path == "/api/results.csv":
-                body = self.api.results_csv().encode("utf-8-sig")  # BOM: Excel opens UTF-8 names correctly
+                body = self.api.results_csv(job_q).encode("utf-8-sig")  # BOM: Excel opens UTF-8 names correctly
                 return self._send(200, body, "text/csv; charset=utf-8",
-                                  {"Content-Disposition": f'attachment; filename="{self._csv_name()}"'})
+                                  {"Content-Disposition": f'attachment; filename="{self._csv_name(job_q)}"'})
             if path == "/api/log":
                 n = int(parse_qs(url.query).get("lines", ["300"])[0])
                 return self._json({"log": self.api.log_tail(max(1, min(n, 5000)))})
-            return self._json({"error": "not found"}, HTTPStatus.NOT_FOUND)
+            return self._spa_fallback(path)
+        except KeyError as e:  # unknown job
+            return self._json({"error": str(e).strip("'\"")}, HTTPStatus.NOT_FOUND)
         except Exception as e:
             return self._json({"error": f"{type(e).__name__}: {e}"}, HTTPStatus.INTERNAL_SERVER_ERROR)
 
@@ -510,7 +643,8 @@ class Handler(BaseHTTPRequestHandler):
             if m := _INTERVIEW_API.match(path):
                 return self._interview(m.group(1), m.group(2), method="POST")
             if path in ("/api/approve/shortlist", "/api/approve/final", "/api/send-results", "/api/jd/draft",
-                        "/api/jd/approve", "/api/resumes") or _LINKEDIN_API.match(path) or _CLEAR_FRAUD_API.match(path)                     or _CLARIFY_API.match(path):
+                        "/api/jd/approve", "/api/jobs", "/api/resumes") or _LINKEDIN_API.match(path) \
+                    or _CLEAR_FRAUD_API.match(path) or _CLARIFY_API.match(path) or _JOB_STATUS_API.match(path):
                 return self._dashboard_action(path)
             return self._json({"error": "not found"}, HTTPStatus.NOT_FOUND)
         except Exception as e:
@@ -556,13 +690,15 @@ class Handler(BaseHTTPRequestHandler):
                 return self._json(self.api.clear_fraud(m.group(1), body))
             if m := _CLARIFY_API.match(path):
                 return self._json(self.api.request_clarification(m.group(1)))
+            if m := _JOB_STATUS_API.match(path):
+                return self._json(self.api.set_job_status(m.group(1), body))
             if path == "/api/resumes":
                 return self._json(self.api.upload_resumes(body))
             if path == "/api/send-results":
-                return self._json(self.api.send_results())
+                return self._json(self.api.send_results(body))
             if path == "/api/jd/draft":
                 return self._json(self.api.write_jd(body))
-            if path == "/api/jd/approve":
+            if path in ("/api/jd/approve", "/api/jobs"):  # post a job (the JD writer's approved draft)
                 return self._json(self.api.approve_jd(body))
             return self._json(self.api.approve(path.rsplit("/", 1)[-1], body))
         except (ApprovalError, ValueError, DocxReadError) as e:  # DocxReadError: unreadable PDF/resume
@@ -574,8 +710,8 @@ class Handler(BaseHTTPRequestHandler):
         except KeyError as e:
             return self._json({"error": str(e).strip("'\"")}, HTTPStatus.NOT_FOUND)
 
-    def _csv_name(self) -> str:
-        job_id = re.sub(r"[^A-Za-z0-9_-]+", "-", self.api.config.job.job_id)[:60] or "results"
+    def _csv_name(self, job_id: str | None = None) -> str:
+        job_id = re.sub(r"[^A-Za-z0-9_-]+", "-", job_id or "all-jobs")[:60] or "results"
         return f"final-results-{job_id}.csv"
 
     def _interview(self, token: str, action: str, method: str) -> None:

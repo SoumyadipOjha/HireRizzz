@@ -15,7 +15,7 @@ from typing import Literal
 
 # Logical collections. The file backend maps each to a folder in the data dir.
 Collection = Literal["stage1_extracted", "stage2_shortlist", "stage3_calls", "stage4_evaluation", "sessions",
-                     "credibility"]
+                     "credibility", "jobs"]
 TextCollection = Literal["transcripts"]
 
 MONGO_PREFIX = "mongodb://"
@@ -56,6 +56,10 @@ class Store(ABC):
     @abstractmethod
     def ref(self, collection: Collection, key: str) -> str:
         """The ref put_record(collection, key, ...) returns / would return."""
+
+    @abstractmethod
+    def list_records(self, collection: Collection) -> list[dict]:
+        """Every document in a collection (small collections only, e.g. jobs)."""
 
     @abstractmethod
     def get_record(self, ref: str) -> dict | None:

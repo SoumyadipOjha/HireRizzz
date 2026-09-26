@@ -36,8 +36,17 @@ def _is_ignorable(path: Path) -> str | None:
     return None
 
 
-def ingest(ctx: RunContext, input_dir: Path | None = None) -> IngestResult:
-    input_dir = Path(input_dir or ctx.config.data.input_resumes)
+def resumes_dir(ctx: RunContext, job_id: str | None) -> Path:
+    """Where a job's resumes are dropped: input/resumes/ for the default job, input/resumes/<job_id>/ otherwise."""
+    job_id = ctx.config.jobs.stored_id(job_id)
+    root = ctx.config.data.input_resumes
+    return root if job_id is None else root / job_id
+
+
+def ingest(ctx: RunContext, input_dir: Path | None = None, job_id: str | None = None) -> IngestResult:
+    """Register the resumes in a job's folder (job_id None = the default job)."""
+    job_id = ctx.config.jobs.stored_id(job_id)
+    input_dir = Path(input_dir or resumes_dir(ctx, job_id))
     log, index = ctx.logger, ctx.index
     result = IngestResult()
 
@@ -55,7 +64,7 @@ def ingest(ctx: RunContext, input_dir: Path | None = None) -> IngestResult:
         source = ctx.config.data.rel(path)
         digest = sha256_file(path)
 
-        if existing := index.find_by_sha256(digest):
+        if existing := index.find_by_sha256(digest, job_id):
             log.info("stage0_ingest: unchanged %s -> candidate_id=%s", path.name, existing.candidate_id)
             result.unchanged.append(existing.candidate_id)
             continue
@@ -68,7 +77,7 @@ def ingest(ctx: RunContext, input_dir: Path | None = None) -> IngestResult:
             result.updated.append(existing.candidate_id)
             continue
 
-        entry = index.register(source, digest)
+        entry = index.register(source, digest, job_id)
         log.info("stage0_ingest: registered %s -> candidate_id=%s", path.name, entry.candidate_id)
         result.new.append(entry.candidate_id)
 

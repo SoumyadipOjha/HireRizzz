@@ -5,7 +5,7 @@ from __future__ import annotations
 import logging
 import threading
 import uuid
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 
 from .config import AppConfig
 from .index import CandidateIndex
@@ -44,6 +44,16 @@ class RunContext:
         logger = setup_logging(config.data.pipeline_log, run_id, lc.console_level, lc.file_level)
         index = CandidateIndex(config.store)
         return cls(config=config, index=index, logger=logger, run_id=run_id)
+
+    def for_job(self, job_id: str | None) -> "RunContext":
+        """This context seen from one job (same index, log, lock and run id)."""
+        return replace(self, config=self.config.for_job(job_id))
+
+    def for_candidate(self, entry: CandidateEntry | str) -> "RunContext":
+        """The context of the job this candidate applied to."""
+        if isinstance(entry, str):
+            entry = self.index.get(entry)
+        return self.for_job(entry.job_id)
 
     def fail(self, stage: StageName, entry: CandidateEntry, error: BaseException) -> None:
         """Log-and-skip (spec §6): log line + failures.jsonl + index, then the caller continues."""

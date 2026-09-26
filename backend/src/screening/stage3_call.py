@@ -121,7 +121,7 @@ def run_stage3(ctx: RunContext, *, force: bool = False, only: set[str] | None = 
             elif mailer is None:
                 mail_note = f"invite NOT emailed ({no_mail}); share the link manually"
             else:
-                _, mail_note = email_invite(ctx.config, invites, entry, inv, mailer, log)
+                _, mail_note = email_invite(ctx.for_candidate(entry).config, invites, entry, inv, mailer, log)
             # The note always ends with the URL (the CLI prints it from there).
             # Keep a partial record from an earlier rescheduled/abandoned call visible.
             note = f"interview link {'active' if reused else 'issued'} (expires {expires})"
@@ -198,6 +198,7 @@ def finalize_dialogue(ctx: RunContext, llm: LLMClient, dialogue: ScreeningDialog
     st = dialogue.state
     cid = st.candidate_id
     entry = ctx.index.reload().get(cid)
+    ctx = ctx.for_candidate(entry)  # the job they applied to (title, questions)
     outcome = st.outcome or "abandoned"
     candidate_spoke = any(t.speaker == "candidate" for t in st.turns)
 
@@ -251,6 +252,7 @@ def finalize_dialogue(ctx: RunContext, llm: LLMClient, dialogue: ScreeningDialog
 def parse_local_transcript(ctx: RunContext, llm: LLMClient, candidate_id: str, transcript_file: Path) -> str:
     """Run the transcript parser on a local .txt (e.g. a call held outside this system)."""
     entry = ctx.index.get(candidate_id)
+    ctx = ctx.for_candidate(entry)
     name = entry.display_name
     if entry.stages["stage1_extraction"].status == "success":
         name = load_stage1(entry, ctx.config.store).extraction.full_name
@@ -272,6 +274,7 @@ def answers_for(ctx_or_config, record: dict) -> list[dict]:
     config = getattr(ctx_or_config, "config", ctx_or_config)
     if record.get("answers_verbatim"):
         return record["answers_verbatim"]
+    config = config.for_job(record.get("job_id"))
     store = config.store
     sid = (record.get("call") or {}).get("session_id")
     session = store.get_record(store.ref("sessions", sid)) if sid else None

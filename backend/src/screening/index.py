@@ -63,19 +63,21 @@ class CandidateIndex:
     def all(self) -> list[CandidateEntry]:
         return sorted(self.doc.candidates.values(), key=lambda c: (c.ingested_at, c.source_file))
 
-    def find_by_sha256(self, sha256: str) -> CandidateEntry | None:
-        return next((c for c in self.doc.candidates.values() if c.source_sha256 == sha256), None)
+    def find_by_sha256(self, sha256: str, job_id: str | None = None) -> CandidateEntry | None:
+        """Same resume already applied (to this job; job_id None = entries without a job)."""
+        return next((c for c in self.doc.candidates.values()
+                     if c.source_sha256 == sha256 and c.job_id == job_id), None)
 
     def find_by_source(self, source_file: str) -> CandidateEntry | None:
         return next((c for c in self.doc.candidates.values() if c.source_file == source_file), None)
 
     # -- mutations (each one saves immediately) ------------------------------
 
-    def register(self, source_file: str, sha256: str | None) -> CandidateEntry:
+    def register(self, source_file: str, sha256: str | None, job_id: str | None = None) -> CandidateEntry:
         now = utc_now()
         cid = str(uuid.uuid4())
         entry = CandidateEntry(candidate_id=cid, source_file=source_file, source_sha256=sha256,
-                               ingested_at=now, updated_at=now)
+                               ingested_at=now, updated_at=now, job_id=job_id)
         self.doc.candidates[cid] = entry
         self.save(cid)
         return entry

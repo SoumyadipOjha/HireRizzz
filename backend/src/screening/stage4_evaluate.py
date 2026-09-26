@@ -115,10 +115,8 @@ def run_stage4(ctx: RunContext, llm: LLMClient, *, force: bool = False,
     summary = StageSummary(STAGE)
     system = load_prompt(PROMPT_DIR, "system.md")
     template = load_prompt(PROMPT_DIR, "evaluate_interview.md")
-    job = ctx.config.job
     store = ctx.config.store
     log = ctx.logger
-    questions = "\n".join(f"{i}. {q.question}" for i, q in enumerate(ctx.config.questions.questions, 1))
 
     for entry in ctx.index.all():
         cid = entry.candidate_id
@@ -143,6 +141,9 @@ def run_stage4(ctx: RunContext, llm: LLMClient, *, force: bool = False,
 
         log.info("%s: candidate_id=%s (%s)", STAGE, cid, entry.display_name)
         try:
+            jc = ctx.for_candidate(entry).config  # the job they applied to
+            job = jc.job
+            questions = "\n".join(f"{i}. {q.question}" for i, q in enumerate(jc.questions.questions, 1))
             s1 = load_stage1(entry, store)
             s2 = load_stage2(entry, store)
             s3 = load_stage3(entry, store)

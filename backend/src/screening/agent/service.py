@@ -62,16 +62,17 @@ class InterviewService:
         and (if a code is needed) the masked email address it goes to."""
         inv = self.invites.validate(token)
         entry = self._entry(inv.candidate_id)
-        s3 = self.ctx.config.settings.stage3
-        job = self.ctx.config.job
+        cfg = self._config(entry)
+        s3 = cfg.settings.stage3
+        job = cfg.job
         name = entry.display_name or ""
         _, email = self._contact(entry)
-        need = verification_required(self.ctx.config, email)
+        need = verification_required(cfg, email)
         if inv.opened_at is None:
             self.invites.update(token, opened_at=utc_now())
         return {"first_name": name.split()[0] if name else None, "job_title": job.title,
                 "company_name": job.company_name, "speech_lang": s3.speech_lang,
-                "questions": len(self.ctx.config.questions.questions), "minutes": call_minutes(self.ctx.config),
+                "questions": len(cfg.questions.questions), "minutes": call_minutes(cfg),
                 "verification_required": need, "email_hint": mask_email(email) if need else None}
 
     def request_code(self, token: str) -> dict:
@@ -79,7 +80,7 @@ class InterviewService:
         name, email = self._contact(self._entry(inv.candidate_id))
         if not verification_required(self.ctx.config, email):
             raise VerificationError("No verification is needed for this link.", 400)
-        result = send_code(self.ctx.config, self.invites, inv, name=name, email=email, mailer=self.mailer)
+        result = send_code(self._config(self._entry(inv.candidate_id)), self.invites, inv, name=name, email=email, mailer=self.mailer)
         self.ctx.logger.info("stage3 agent: verification code sent for candidate_id=%s", inv.candidate_id)
         return result
 
@@ -102,7 +103,7 @@ class InterviewService:
             for sid, live in list(self._live.items()):
                 if live.token == token:  # a reload / second tab: the older session is abandoned
                     self._close(sid, live)
-            dialogue = ScreeningDialogue(config=self.ctx.config, llm=self.llm, candidate_id=inv.candidate_id,
+            dialogue = ScreeningDialogue(config=self._config(entry), llm=self.llm, candidate_id=inv.candidate_id,
                                          candidate_name=name, channel=channel, logger=self.ctx.logger)
             live = _Live(token=token, dialogue=dialogue, lock=threading.Lock())
             self._live[dialogue.state.session_id] = live
@@ -141,6 +142,10 @@ class InterviewService:
     def _entry(self, candidate_id: str):
         with self.ctx.lock:
             return self.ctx.index.reload().get(candidate_id).model_copy(deep=True)
+
+    def _config(self, entry):
+        """The config of the job this candidate applied to."""
+        return self.ctx.config.for_job(entry.job_id)
 
     def _contact(self, entry) -> tuple[str | None, str | None]:
         try:

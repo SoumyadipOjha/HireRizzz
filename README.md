@@ -12,7 +12,7 @@ resume upload -> AI reads + scores resume -> recruiter approves -> invite email 
 | Folder | What | Deploy |
 |---|---|---|
 | [`backend/`](backend/) | Python API: Gemini stages, MongoDB, Gmail SMTP, approvals ([README](backend/README.md)) | Render (`render.yaml`) |
-| [`frontend/`](frontend/) | Static pages: manager dashboard + candidate interview page ([README](frontend/README.md)) | Vercel (`frontend/vercel.json`) |
+| [`frontend/`](frontend/) | React + Vite app: jobs, job boards, candidate side panel; plus the candidate interview page ([README](frontend/README.md)) | Vercel (`frontend/vercel.json`) |
 
 ## Run locally
 
@@ -20,7 +20,7 @@ resume upload -> AI reads + scores resume -> recruiter approves -> invite email 
 cd backend
 uv sync
 copy .env.example .env      # fill in GEMINI_API_KEY, SMTP_USER, SMTP_PASS
-uv run screening serve      # dashboard + API + interview pages on http://127.0.0.1:8765
+uv run screening serve      # API + interview pages (+ the app once built: cd ../frontend && npm install && npm run build)
 uv run pytest
 ```
 

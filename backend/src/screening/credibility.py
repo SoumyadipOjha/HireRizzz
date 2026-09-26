@@ -384,7 +384,7 @@ def request_clarification(ctx, candidate_id: str, *, record: CredibilityRecord |
         name, address = candidate_contact(ctx.config, entry)
     except Exception:
         name, address = entry.display_name, None
-    job = ctx.config.job
+    job = ctx.config.for_job(entry.job_id).job
     if not valid_email(address):
         n = Notification(kind="clarification", status="skipped", at=utc_now(), error="no valid email address in the resume")
     else:

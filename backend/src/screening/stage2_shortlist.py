@@ -80,25 +80,27 @@ def load_stage1(entry, store: Store) -> Stage1Record:
     return record
 
 
-def run_stage2(ctx: RunContext, llm: LLMClient, *, force: bool = False,
-               only: set[str] | None = None) -> StageSummary:
-    summary = StageSummary(STAGE)
-    system = load_prompt(PROMPT_DIR, "system.md")
-    template = load_prompt(PROMPT_DIR, "score_candidate.md")
-    job: JobDescription = ctx.config.job
-    settings = ctx.config.settings
-    log = ctx.logger
-
+def _job_fields(job: JobDescription) -> dict:
     exp_range = (f"{job.min_experience_years:g}-{job.max_experience_years:g} years"
                  if job.min_experience_years is not None and job.max_experience_years is not None
                  else f"at least {job.min_experience_years:g} years" if job.min_experience_years is not None
                  else "not specified")
-    job_fields = dict(
+    return dict(
         job_id=job.job_id, job_title=job.title, job_location=job.location or "not specified",
         must_have_skills=", ".join(job.must_have_skills),
         nice_to_have_skills=", ".join(job.nice_to_have_skills) or "none",
         job_description=job.description.strip(), experience_range=exp_range,
     )
+
+
+def run_stage2(ctx: RunContext, llm: LLMClient, *, force: bool = False,
+               only: set[str] | None = None) -> StageSummary:
+    summary = StageSummary(STAGE)
+    system = load_prompt(PROMPT_DIR, "system.md")
+    template = load_prompt(PROMPT_DIR, "score_candidate.md")
+    settings = ctx.config.settings
+    log = ctx.logger
+    jobs: dict[str, tuple[JobDescription, dict]] = {}   # each candidate is scored against the job they applied to
 
     for entry in ctx.index.all():
         cid = entry.candidate_id
@@ -121,6 +123,11 @@ def run_stage2(ctx: RunContext, llm: LLMClient, *, force: bool = False,
 
         log.info("%s: candidate_id=%s (%s)", STAGE, cid, entry.display_name)
         try:
+            jid = ctx.config.jobs.candidate_job(entry)
+            if jid not in jobs:
+                jd = ctx.config.for_job(jid).job
+                jobs[jid] = (jd, _job_fields(jd))
+            job, job_fields = jobs[jid]
             s1 = load_stage1(entry, ctx.config.store)
             prompt = template.render(candidate_profile=blind_profile(s1.extraction), **job_fields)
             assessment = llm.generate_json(system=system.text, prompt=prompt, schema=ShortlistAssessmentLLM)

@@ -37,6 +37,7 @@ class PathsConfig(_Strict):
     stage3_invites: str
     stage4_output: str = "stage4_evaluation"
     credibility_output: str = "credibility"
+    jobs_output: str = "jobs"
     logs: str
 
 
@@ -236,17 +237,16 @@ class ScreeningQuestions(_Strict):
 class AppConfig:
     """Everything a run needs, loaded once."""
 
-    def __init__(self, settings: Settings, data: DataPaths):
+    def __init__(self, settings: Settings, data: DataPaths, job_id: str | None = None):
         self.settings = settings
         self.data = data
-        self._jd: JobDescription | None = None
-        self._questions: ScreeningQuestions | None = None
+        self.job_id = job_id          # None = the default job
         self._store: Store | None = None
+        self._jobs = None
 
     def reload_files(self) -> None:
-        """Forget the cached JD and questions (after they were edited on disk)."""
-        self._jd = None
-        self._questions = None
+        """Forget cached jobs (after they were edited elsewhere)."""
+        self.jobs.refresh()
 
     @property
     def store(self) -> Store:
@@ -255,16 +255,42 @@ class AppConfig:
         return self._store
 
     @property
+    def jobs(self):
+        if self._jobs is None:
+            from .jobs import JobStore
+
+            self._jobs = JobStore(self)
+        return self._jobs
+
+    def for_job(self, job_id: str | None) -> "AppConfig":
+        """The same config seen from one job: `.job` / `.questions` are that job's."""
+        c = AppConfig(self.settings, self.data, job_id)
+        c._store, c._jobs = self.store, self.jobs
+        return c
+
+    def yaml_job(self) -> JobDescription:
+        return _load_model(PROJECT_ROOT / self.settings.files.job_description, JobDescription)
+
+    def yaml_questions(self) -> ScreeningQuestions:
+        return _load_model(PROJECT_ROOT / self.settings.files.screening_questions, ScreeningQuestions)
+
+    @property
     def job(self) -> JobDescription:
-        if self._jd is None:
-            self._jd = _load_model(PROJECT_ROOT / self.settings.files.job_description, JobDescription)
-        return self._jd
+        from .jobs import JobError
+
+        try:
+            return self.jobs.description(self.job_id)
+        except JobError as e:
+            raise ConfigError(str(e)) from None
 
     @property
     def questions(self) -> ScreeningQuestions:
-        if self._questions is None:
-            self._questions = _load_model(PROJECT_ROOT / self.settings.files.screening_questions, ScreeningQuestions)
-        return self._questions
+        from .jobs import JobError
+
+        try:
+            return self.jobs.questions(self.job_id)
+        except JobError as e:
+            raise ConfigError(str(e)) from None
 
     def api_key(self) -> str:
         key = os.environ.get(self.settings.llm.api_key_env, "").strip()

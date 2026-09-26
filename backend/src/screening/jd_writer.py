@@ -2,28 +2,21 @@
 
     draft_jd()    brief -> {job, questions, language_notes}; saved as <data>/jd_draft.json.
                   Nothing is live yet.
-    approve_jd()  the (edited) draft is validated and becomes config/job_description.yaml
-                  and config/screening_questions.yaml. The previous files are kept in
-                  config/history/. Role questions (kind: role) are replaced; logistics
-                  questions stay as they are.
-
-Candidates already scored against the old JD are not re-scored automatically:
-`approve_jd` reports how many there are so the caller can warn about it.
+    approve_jd()  the (edited) draft is validated and posted as a new job (jobs.py), with
+                  its own candidates. Role questions (kind: role) are new; the logistics
+                  questions are copied from the default job.
 """
 
 from __future__ import annotations
 
 import json
 import re
-import shutil
-from datetime import date, datetime, timezone
+from datetime import date
 
-import yaml
 from pydantic import ValidationError
 
 from .config import AppConfig, ConfigError, JobDescription, ScreeningQuestion, ScreeningQuestions
 from .llm import LLMClient
-from .paths import PROJECT_ROOT
 from .prompts import load_prompt
 from .schemas import JDDraftLLM, utc_now
 from .storage import write_json_atomic
@@ -106,42 +99,36 @@ def load_draft(config: AppConfig) -> dict | None:
         return None
 
 
-def _yaml(header: str, data: dict) -> str:
-    return header + yaml.safe_dump(data, sort_keys=False, allow_unicode=True, width=100)
-
-
 def approve_jd(config: AppConfig, job: dict, questions: list[dict], *, by: str,
-               scored_candidates: int = 0) -> dict:
-    """Validate the (edited) draft and make it the live JD + questions."""
+               scored_candidates: int = 0, job_id: str | None = None) -> dict:
+    """Validate the (edited) draft and post it as a new job (or, with job_id, update that job).
+    Candidates already scored against an updated job are not re-scored."""
+    from .jobs import JobError
+
     by = (by or "").strip()
     if not by or len(by) > 80:
         raise JDError("say who is approving (a name, up to 80 characters)")
     try:
-        jd = JobDescription.model_validate({**job, "approved_by": by, "approved_at": utc_now()})
+        jd = JobDescription.model_validate({**job, "job_id": job_id or job.get("job_id") or "draft",
+                                            "approved_by": by, "approved_at": utc_now()})
         qs = ScreeningQuestions.model_validate({"questions": questions})
     except ValidationError as e:
         errs = "; ".join(f"{'.'.join(map(str, x['loc']))}: {x['msg']}" for x in e.errors()[:6])
         raise JDError(f"the draft isn't valid yet: {errs}") from None
-    if jd.min_experience_years is not None and jd.max_experience_years is not None \
-            and jd.min_experience_years > jd.max_experience_years:
+    if jd.min_experience_years is not None and jd.max_experience_years is not None             and jd.min_experience_years > jd.max_experience_years:
         raise JDError("minimum experience is above the maximum")
 
-    jd_path = PROJECT_ROOT / config.settings.files.job_description
-    q_path = PROJECT_ROOT / config.settings.files.screening_questions
-    history = jd_path.parent / "history"
-    history.mkdir(exist_ok=True)
-    stamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%S")
-    for p in (jd_path, q_path):
-        if p.exists():
-            shutil.copy2(p, history / f"{stamp}_{p.name}")
-
-    jd_path.write_text(_yaml(f"# Approved by {by} on {jd.approved_at} (drafted with the JD writer).\n"
-                             "# The role candidates are scored against. Previous versions: config/history/\n",
-                             jd.model_dump(exclude_none=True)), encoding="utf-8")
-    q_path.write_text(_yaml("# Questions the screening agent asks. kind: role = about the job (scored in Stage 4).\n"
-                            "# `id` values are stable keys used in stage3 records -> screening.answers[].question_id\n",
-                            {"questions": [q.model_dump() for q in qs.questions]}), encoding="utf-8")
-    config.reload_files()
+    fields = jd.model_dump(exclude_none=True)
+    qlist = [q.model_dump() for q in qs.questions]
+    try:
+        if job_id:
+            rec = config.jobs.update(job_id, fields, qlist)
+        else:
+            if not job.get("job_id"):
+                fields.pop("job_id")
+            rec = config.jobs.create(fields, qlist, posted_by=by)
+    except JobError as e:
+        raise JDError(str(e)) from None
     _draft_path(config).unlink(missing_ok=True)
-    return {"job_id": jd.job_id, "title": jd.title, "questions": len(qs.questions),
-            "backup": f"{history.name}/{stamp}_*", "already_scored": scored_candidates}
+    return {"job_id": rec.job["job_id"], "title": jd.title, "questions": len(qs.questions),
+            "updated": bool(job_id), "already_scored": scored_candidates if job_id else 0}

@@ -131,7 +131,9 @@ def test_reapply_button_links_to_the_job_posting(faker):
     from screening.credibility import request_clarification
 
     ctx, cid = faker
-    ctx.config.job.apply_url = "https://careers.kanerika.com/jobs/python-backend?ref=<x>"
+    rec = ctx.config.jobs.get(None)
+    ctx.config.jobs.save(rec.model_copy(update={"job": {
+        **rec.job, "apply_url": "https://careers.kanerika.com/jobs/python-backend?ref=<x>"}}))
     request_clarification(ctx, cid)                                     # the recruiter's "Resend"
     msg = _clarifications(ctx)[-1]
     html = msg.get_body(("html",)).get_content()

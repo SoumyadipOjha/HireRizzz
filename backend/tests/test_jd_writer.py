@@ -1,4 +1,4 @@
-"""Gate 1: brief -> AI draft (not live) -> manager approves -> live JD + questions (old ones kept)."""
+"""Gate 1: brief -> AI draft (not live) -> manager approves -> posted as a new job (the others untouched)."""
 
 from __future__ import annotations
 
@@ -11,7 +11,6 @@ from functools import partial
 from http.server import ThreadingHTTPServer
 
 import pytest
-import yaml
 from conftest import FakeLLM
 
 from screening.config import ScreeningQuestion
@@ -49,14 +48,23 @@ def test_draft_is_not_live_until_approved(jd_ctx):
     assert kinds[:3] == [("interest", "logistics"), ("role_1", "role"), ("role_2", "role")]
     assert "recent_project" not in dict(kinds) and ("notice_period", "logistics") in kinds  # logistics kept
 
-    r = approve_jd(ctx.config, d["job"], d["questions"], by="Dev (Manager)", scored_candidates=2)
-    assert r["already_scored"] == 2 and ctx.config.job.title == "Data Engineer"  # cache reloaded
-    assert ctx.config.job.approved_by == "Dev (Manager)"
-    assert [q.id for q in ctx.config.questions.questions if q.kind == "role"] == ["role_1", "role_2"]
-    saved = yaml.safe_load((cfg_dir / "job_description.yaml").read_text(encoding="utf-8"))
-    assert saved["must_have_skills"] == ["Python", "SQL", "Airflow"]
-    assert len(list((cfg_dir / "history").glob("*_job_description.yaml"))) == 1  # old version kept
+    r = approve_jd(ctx.config, d["job"], d["questions"], by="Dev (Manager)")
+    assert r["job_id"].startswith("data-engineer-") and not r["updated"]
+    new = ctx.config.for_job(r["job_id"])                                  # posted as a second job
+    assert new.job.title == "Data Engineer" and new.job.approved_by == "Dev (Manager)"
+    assert [q.id for q in new.questions.questions if q.kind == "role"] == ["role_1", "role_2"]
+    assert new.job.must_have_skills == ["Python", "SQL", "Airflow"]
+    assert ctx.config.job.title == "Python Backend Engineer"                # the first job is untouched
+    assert (cfg_dir / "job_description.yaml").read_text(encoding="utf-8") == before
+    assert {j.job["job_id"] for j in ctx.config.jobs.all()} == {ctx.config.job.job_id, r["job_id"]}
     assert load_draft(ctx.config) is None
+
+    again = approve_jd(ctx.config, d["job"], d["questions"], by="Dev")     # same draft twice: a new id
+    assert again["job_id"] == r["job_id"] + "-2"
+    upd = approve_jd(ctx.config, {**d["job"], "title": "Lead Data Engineer"}, d["questions"], by="Dev",
+                     job_id=r["job_id"], scored_candidates=3)             # editing a posted job
+    assert upd["updated"] and upd["already_scored"] == 3
+    assert ctx.config.for_job(r["job_id"]).job.title == "Lead Data Engineer"
 
 
 def test_bad_briefs_and_drafts_are_refused(jd_ctx):
@@ -105,8 +113,22 @@ def test_jd_writer_over_http(jd_ctx):
         status, body = post("/api/jd/approve", {"by": "Dev", "job": {**d["job"], "title": "Senior Data Engineer"},
                                                 "questions": d["questions"]})
         assert status == 200 and body["title"] == "Senior Data Engineer"
-        with urllib.request.urlopen(base + "/api/overview") as r:
+        jid = body["job_id"]
+        with urllib.request.urlopen(base + "/api/overview?job=" + jid) as r:
             assert json.loads(r.read())["job"]["title"] == "Senior Data Engineer"
+        with urllib.request.urlopen(base + "/api/jobs") as r:
+            jobs = json.loads(r.read())["jobs"]
+        assert [j["title"] for j in jobs] == ["Senior Data Engineer", "Python Backend Engineer"]  # newest first
+        with urllib.request.urlopen(base + "/api/jobs/" + jid) as r:
+            job = json.loads(r.read())
+        assert job["status"] == "open" and job["candidates"] == [] and len(job["questions"]) == len(d["questions"])
+        assert post(f"/api/jobs/{jid}/status", {"status": "closed"}) == (200, {"job_id": jid, "status": "closed"})
+        assert post("/api/resumes", {"job_id": jid, "files": [{"name": "a.pdf", "data": ""}]})[0] == 400  # closed
+        try:
+            urllib.request.urlopen(base + "/api/jobs/no-such-job")
+            raise AssertionError("expected 404")
+        except urllib.error.HTTPError as e:
+            assert e.code == 404
     finally:
         httpd.shutdown()
         httpd.server_close()

@@ -45,6 +45,7 @@ class FileStore(Store):
             "stage3_calls": self.data.stage3_output,
             "stage4_evaluation": self.data.stage4_output,
             "credibility": self.data.credibility_output,
+            "jobs": self.data.jobs_output,
             "sessions": self.data.stage3_sessions,
             "transcripts": self.data.stage3_transcripts,
         }
@@ -72,6 +73,10 @@ class FileStore(Store):
 
     def ref(self, collection: Collection, key: str) -> str:
         return self.data.rel(self._dir(collection) / f"{key}.json")
+
+    def list_records(self, collection: Collection) -> list[dict]:
+        folder = self._dir(collection)
+        return [d for f in sorted(folder.glob("*.json")) if (d := _read_json(f)) is not None] if folder.exists() else []
 
     def get_record(self, ref: str) -> dict | None:
         if parse_mongo_ref(ref):

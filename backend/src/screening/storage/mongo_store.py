@@ -86,6 +86,9 @@ class MongoStore(Store):
     def ref(self, collection: Collection, key: str) -> str:
         return mongo_ref(collection, key)
 
+    def list_records(self, collection: Collection) -> list[dict]:
+        return self._call(lambda: [_strip(d) for d in self.db[collection].find()])
+
     def get_record(self, ref: str) -> dict | None:
         parsed = parse_mongo_ref(ref)
         if parsed is None:  # a file ref from before the switch to MongoDB

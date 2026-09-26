@@ -128,7 +128,7 @@ def send_reminders(ctx, mailer: Mailer, now: datetime | None = None) -> list[str
             entry = index.get(inv.candidate_id)
         except KeyError:
             continue
-        ok, note = email_invite(ctx.config, invites, entry, inv, mailer, ctx.logger, kind="reminder")
+        ok, note = email_invite(ctx.config.for_job(entry.job_id), invites, entry, inv, mailer, ctx.logger, kind="reminder")
         if ok:
             sent.append(inv.candidate_id)
     if sent:
