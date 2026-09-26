@@ -327,9 +327,39 @@ def build_record(config, entry, *, linkedin_profile: ResumeExtractionLLM | None 
 
 
 def save_record(ctx, record: CredibilityRecord) -> CredibilityRecord:
+    """Store the result; enough red issues stop the candidate (and cancel an open interview link)."""
+    cc = ctx.config.settings.credibility
     ctx.config.store.put_record("credibility", record.candidate_id, record.model_dump(mode="json"))
-    ctx.index.set_credibility(record.candidate_id, record.summary)
+    was = ctx.index.get(record.candidate_id).fraud_blocked
+    entry = ctx.index.set_credibility(record.candidate_id, record.summary,
+                                      block_min_red=cc.min_red_to_block if cc.block_on_fraud else 0)
+    if entry.fraud_blocked and not was:
+        ctx.logger.warning("credibility: candidate_id=%s FRAUD DETECTED (%d red issues): stopped before further "
+                           "stages", record.candidate_id, record.summary.red)
+        from .agent.invites import InviteStore
+
+        invites = InviteStore(ctx.config.store)
+        if inv := invites.active_for(record.candidate_id):
+            invites.update(inv.token, status="revoked")
+            ctx.logger.info("credibility: candidate_id=%s interview link revoked", record.candidate_id)
     return record
+
+
+def clear_fraud(ctx, candidate_id: str, *, by: str, note: str | None = None):
+    """A recruiter reviewed the flags and lets the candidate continue. Recorded; undone if new issues appear."""
+    from .schemas import FraudClearance
+
+    by = (by or "").strip()
+    if not by or len(by) > 80:
+        raise ValueError("say who is clearing the flag (a name, up to 80 characters)")
+    entry = ctx.index.get(candidate_id)
+    if not entry.fraud_blocked:
+        raise ValueError("this candidate isn't blocked")
+    red = entry.credibility.red if entry.credibility else 0
+    ctx.logger.info("credibility: candidate_id=%s fraud flag CLEARED by %s (%d red issues)%s", candidate_id, by, red,
+                    f": {note}" if note else "")
+    return ctx.index.clear_fraud(candidate_id, FraudClearance(by=by, at=utc_now(), note=(note or None) and note[:300],
+                                                               red_at_clearance=red))
 
 
 def load_record(config, candidate_id: str) -> CredibilityRecord | None:

@@ -11,6 +11,7 @@ from .prompts import load_prompt
 from .storage import Store, load_model
 from .schemas import CriterionResult, LLMInfo, ResumeExtractionLLM, ShortlistAssessmentLLM, Stage1Record, Stage2Record
 
+FRAUD_NOTE = "blocked: fraud detected by the resume credibility checks (a recruiter can clear it)"
 STAGE = "stage2_shortlisting"
 UPSTREAM = "stage1_extraction"
 PROMPT_DIR = "stage2_shortlisting"
@@ -106,6 +107,11 @@ def run_stage2(ctx: RunContext, llm: LLMClient, *, force: bool = False,
         st = entry.stages[STAGE]
         if st.status == "success" and not force:
             summary.already_done.append(cid)
+            continue
+        if entry.fraud_blocked:  # stopped by the credibility checks
+            if entry.stages[STAGE].note != FRAUD_NOTE:
+                ctx.skip(STAGE, entry, FRAUD_NOTE)
+            summary.skipped.append(cid)
             continue
         upstream = entry.stages[UPSTREAM].status
         if upstream != "success":

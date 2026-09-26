@@ -26,6 +26,7 @@ from .storage import Store, load_model
 from .schemas import CallInfo, LLMInfo, ScreeningAnswerLLM, Stage2Record, Stage3Record, TranscriptParseLLM
 from .stage2_shortlist import JoinKeyMismatchError, load_stage1
 
+FRAUD_NOTE = "blocked: fraud detected by the resume credibility checks (a recruiter can clear it)"
 STAGE = "stage3_calling"
 UPSTREAM = "stage2_shortlisting"
 PROMPT_DIR = "stage3_calling"
@@ -79,6 +80,11 @@ def run_stage3(ctx: RunContext, *, force: bool = False, only: set[str] | None = 
         st = entry.stages[STAGE]
         if st.status == "success" and not force:
             summary.already_done.append(cid)
+            continue
+        if entry.fraud_blocked:
+            if entry.stages[STAGE].note != FRAUD_NOTE:
+                ctx.skip(STAGE, entry, FRAUD_NOTE)
+            summary.skipped.append(cid)
             continue
         up = entry.stages[UPSTREAM]
         if up.status != "success":

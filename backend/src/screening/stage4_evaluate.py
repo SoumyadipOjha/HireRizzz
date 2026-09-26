@@ -33,6 +33,7 @@ from .stage2_shortlist import JoinKeyMismatchError, load_stage1
 from .stage3_call import load_stage2
 from .storage import Store, load_model
 
+FRAUD_NOTE = "blocked: fraud detected by the resume credibility checks (a recruiter can clear it)"
 STAGE = "stage4_evaluation"
 UPSTREAM = "stage3_calling"
 PROMPT_DIR = "stage4_evaluation"
@@ -126,6 +127,11 @@ def run_stage4(ctx: RunContext, llm: LLMClient, *, force: bool = False,
         st = entry.stages[STAGE]
         if st.status == "success" and not force:
             summary.already_done.append(cid)
+            continue
+        if entry.fraud_blocked:
+            if entry.stages[STAGE].note != FRAUD_NOTE:
+                ctx.skip(STAGE, entry, FRAUD_NOTE)
+            summary.skipped.append(cid)
             continue
         up = entry.stages[UPSTREAM]
         if up.status != "success":

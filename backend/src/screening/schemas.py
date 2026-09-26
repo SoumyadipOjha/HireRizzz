@@ -19,7 +19,7 @@ SCHEMA_VERSION = "1.0"
 StageName = Literal["stage1_extraction", "stage2_shortlisting", "stage3_calling", "stage4_evaluation"]
 STAGES: tuple[StageName, ...] = ("stage1_extraction", "stage2_shortlisting", "stage3_calling", "stage4_evaluation")
 StageStatus = Literal["pending", "success", "failed", "skipped", "awaiting"]
-OverallStatus = Literal["active", "rejected", "failed", "awaiting", "completed", "evaluated",
+OverallStatus = Literal["active", "rejected", "failed", "fraud", "awaiting", "completed", "evaluated",
                         "selected", "not_selected"]
 Decision = Literal["shortlisted", "rejected"]
 COMPETENCIES = ("role_knowledge", "problem_solving", "communication", "motivation")
@@ -87,6 +87,8 @@ class CandidateEntry(_Model):
     reviews: dict[ReviewGate, Review] = Field(default_factory=dict)
     notifications: dict[ReviewGate, Notification] = Field(default_factory=dict)  # keyed by the gate it follows
     credibility: "CredibilitySummary | None" = None  # resume checks / LinkedIn cross-check (credibility.py)
+    fraud_blocked: bool = False            # stopped by the credibility checks (no further stages)
+    fraud_cleared: "FraudClearance | None" = None   # a recruiter looked and let the candidate continue
 
     @model_validator(mode="after")
     def _all_stages(self) -> "CandidateEntry":
@@ -370,6 +372,13 @@ class CredibilitySummary(_Model):
     green: int = 0
     linkedin: bool = False                # a LinkedIn PDF was compared
     updated_at: str | None = None
+
+
+class FraudClearance(_Model):
+    by: str
+    at: str
+    note: str | None = None
+    red_at_clearance: int = 0             # how many issues the recruiter saw when clearing
 
 
 class CredibilityRecord(_Model):

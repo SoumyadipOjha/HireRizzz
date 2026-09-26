@@ -100,6 +100,12 @@ class EvaluationConfig(_Strict):
         return self
 
 
+class CredibilityConfig(_Strict):
+    """Resume credibility checks (credibility.py)."""
+    block_on_fraud: bool = True           # red issues stop the candidate before any further stage
+    min_red_to_block: int = Field(default=1, ge=1)   # how many red issues count as "fraud detected"
+
+
 class ApprovalsConfig(_Strict):
     """Human gates. The AI suggests; people decide (approvals.py)."""
     require_shortlist_approval: bool = True   # invites go out only after a recruiter approves the resume shortlist
@@ -183,6 +189,7 @@ class Settings(_Strict):
     stage3: Stage3Config = Stage3Config()
     evaluation: EvaluationConfig = EvaluationConfig()
     approvals: ApprovalsConfig = ApprovalsConfig()
+    credibility: CredibilityConfig = CredibilityConfig()
     storage: StorageConfig = StorageConfig()
     email: EmailConfig = EmailConfig()
     logging: LoggingConfig = LoggingConfig()

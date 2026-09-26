@@ -61,6 +61,7 @@ MAX_UPLOAD_BODY = 30 * 1024 * 1024   # resume upload (base64 JSON): a few files 
 MAX_RESUME_BYTES = 10 * 1024 * 1024
 _UUID = re.compile(r"^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$")
 _LINKEDIN_API = re.compile(r"^/api/candidate/([0-9a-f-]{36})/linkedin$")
+_CLEAR_FRAUD_API = re.compile(r"^/api/candidate/([0-9a-f-]{36})/clear-fraud$")
 _INTERVIEW_API = re.compile(r"^/api/interview/([A-Za-z0-9_-]+)/(info|code|verify|start|turn|end)$")
 _CSP = ("default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; "
         "connect-src 'self'; img-src 'self' data:; frame-ancestors 'none'; base-uri 'none'; form-action 'none'")
@@ -297,6 +298,35 @@ class DashboardAPI:
                 self.ctx.logger.warning("credibility: candidate_id=%s checks failed: %s", cid, e)
         return rec.model_dump(mode="json") if rec else None
 
+    def clear_fraud(self, cid: str, body: dict) -> dict:
+        """A recruiter reviewed the flags: the candidate continues (resume scoring runs in the background)."""
+        from ..credibility import clear_fraud
+
+        by = body.get("by") if isinstance(body.get("by"), str) else ""
+        note = body.get("note") if isinstance(body.get("note"), str) else None
+        with self.ctx.lock:
+            entry = clear_fraud(self.ctx, self.ctx.index.reload().get(cid).candidate_id, by=by, note=note)
+        if entry.stages["stage2_shortlisting"].status != "success" and not self.processing["running"]:
+            self.processing.update(running=True, message=f"Scoring {entry.display_name or 'the resume'} after clearance…")
+            threading.Thread(target=self._continue_after_clearance, args=(cid,), daemon=True).start()
+        return {"cleared": True, "overall_status": entry.overall_status}
+
+    def _continue_after_clearance(self, cid: str) -> None:
+        from ..llm import make_client
+        from ..stage2_shortlist import run_stage2
+
+        try:
+            llm = self._llm_factory() if self._llm_factory else make_client(self.config)
+            with self.ctx.lock:
+                self.ctx.index.reload()
+                s2 = run_stage2(self.ctx, llm, only={cid})
+            self.processing.update(message="Done: resume scored" if s2.succeeded else "Scoring failed: see Failures")
+        except Exception as e:
+            self.ctx.logger.error("clearance: scoring failed: %s: %s", type(e).__name__, e)
+            self.processing.update(message=f"Scoring failed: {e}")
+        finally:
+            self.processing["running"] = False
+
     def upload_linkedin(self, cid: str, body: dict) -> dict:
         """The candidate's LinkedIn 'Save to PDF' export -> compared with their resume."""
         import base64
@@ -468,7 +498,7 @@ class Handler(BaseHTTPRequestHandler):
             if m := _INTERVIEW_API.match(path):
                 return self._interview(m.group(1), m.group(2), method="POST")
             if path in ("/api/approve/shortlist", "/api/approve/final", "/api/send-results", "/api/jd/draft",
-                        "/api/jd/approve", "/api/resumes") or _LINKEDIN_API.match(path):
+                        "/api/jd/approve", "/api/resumes") or _LINKEDIN_API.match(path) or _CLEAR_FRAUD_API.match(path):
                 return self._dashboard_action(path)
             return self._json({"error": "not found"}, HTTPStatus.NOT_FOUND)
         except Exception as e:
@@ -510,6 +540,8 @@ class Handler(BaseHTTPRequestHandler):
             body = self._body(MAX_UPLOAD_BODY if path == "/api/resumes" or _LINKEDIN_API.match(path) else MAX_BODY)
             if m := _LINKEDIN_API.match(path):
                 return self._json(self.api.upload_linkedin(m.group(1), body))
+            if m := _CLEAR_FRAUD_API.match(path):
+                return self._json(self.api.clear_fraud(m.group(1), body))
             if path == "/api/resumes":
                 return self._json(self.api.upload_resumes(body))
             if path == "/api/send-results":

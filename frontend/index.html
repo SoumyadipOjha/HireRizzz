@@ -79,7 +79,7 @@ header.top { display: flex; align-items: center; gap: 16px; flex-wrap: wrap; mar
 .banner b { font-weight: 650; white-space: nowrap; }
 
 /* KPIs */
-.kpis { display: grid; grid-template-columns: repeat(7, minmax(0, 1fr)); gap: 12px; margin-bottom: 16px; }
+.kpis { display: grid; grid-template-columns: repeat(8, minmax(0, 1fr)); gap: 12px; margin-bottom: 16px; }
 @media (max-width: 1100px) { .kpis { grid-template-columns: repeat(4, minmax(0, 1fr)); } }
 @media (max-width: 760px) { .kpis { grid-template-columns: repeat(3, minmax(0, 1fr)); } }
 @media (max-width: 520px) { .kpis { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
@@ -249,6 +249,11 @@ pre.log { max-height: 70vh; margin: 0; border-radius: 0 0 var(--radius) var(--ra
 .flag { font-size: 11px; font-weight: 600; color: var(--warn); background: var(--warn-soft); border-radius: 6px; padding: 1px 7px; white-space: nowrap; }
 .flag.ai { color: var(--accent); background: var(--accent-soft); }
 .flag.bad { color: var(--bad); background: var(--bad-soft); }
+.flag.fraud { color: #fff; background: var(--bad); font-weight: 700; }
+.s-fraud { color: var(--bad); background: var(--bad-soft); }
+.fraudbox { border: 1px solid var(--bad); background: var(--bad-soft); color: var(--bad); border-radius: 8px; padding: 10px 12px; margin-bottom: 12px; display: grid; gap: 8px; }
+.fraudbox .row { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
+.fraudbox input { flex: 1; min-width: 180px; border: 1px solid var(--border); background: var(--surface); color: var(--text); border-radius: 8px; padding: 6px 10px; }
 .quote { border-left: 3px solid var(--accent); padding: 1px 0 1px 10px; margin: 4px 0; font-size: 12px; color: var(--text); }
 .dropped { font-size: 12px; color: var(--warn); margin: 2px 0 6px; }
 tbody tr.static { cursor: default; }
@@ -428,12 +433,14 @@ function candidates() {
 
 // The recruiter's decision if made, else the AI's suggestion (mirrors index.resume_decision).
 const resumeDecision = (c) => c.reviews?.shortlist?.decision || c.stages.stage2_shortlisting.decision;
-const waitingShortlist = (c) => c.stages.stage2_shortlisting.status === "success" && !c.reviews?.shortlist;
-const waitingFinal = (c) => c.stages.stage4_evaluation.status === "success" && !c.reviews?.final && resumeDecision(c) === "shortlisted";
+// Mirrors approvals.awaiting_*_review: a candidate stopped for fraud is never waiting for approval.
+const waitingShortlist = (c) => !c.fraud_blocked && c.stages.stage2_shortlisting.status === "success" && !c.reviews?.shortlist;
+const waitingFinal = (c) => !c.fraud_blocked && c.stages.stage4_evaluation.status === "success" && !c.reviews?.final && resumeDecision(c) === "shortlisted";
 
 function bucket(c) {
   return {
-    shortlisted: resumeDecision(c) === "shortlisted" && c.reviews?.final?.decision !== "rejected",
+    fraud: !!c.fraud_blocked,
+    shortlisted: !c.fraud_blocked && resumeDecision(c) === "shortlisted" && c.reviews?.final?.decision !== "rejected",
     rejected: resumeDecision(c) === "rejected" || c.reviews?.final?.decision === "rejected",
     review: waitingShortlist(c) || waitingFinal(c),
     failed: c.overall_status === "failed",
@@ -507,6 +514,7 @@ function renderKPIs() {
     ["review", "Needs approval", n("review"), "var(--warn)"],
     ["awaiting", "Awaiting candidate", n("awaiting"), "var(--warn)"],
     ["evaluated", "Interviews scored", n("evaluated"), "var(--accent)"],
+    ["fraud", "Fraud detected", n("fraud"), "var(--bad)"],
     ["failed", "Failed", n("failed"), "var(--bad)"],
   ];
   $("kpis").replaceChildren(...items.map(([key, label, value, color]) =>
@@ -527,7 +535,8 @@ function renderPipeline() {
       const rj = done.filter((c) => resumeDecision(c) === "rejected").length;
       extra.push(h("div", { class: "legend", style: "margin-top:6px" },
         h("span", {}, h("i", { class: "sw", style: "background:var(--ok)" }), `${sl} passed resume screen`),
-        h("span", {}, h("i", { class: "sw", style: "background:var(--bad)" }), `${rj} rejected at resume`)));
+        h("span", {}, h("i", { class: "sw", style: "background:var(--bad)" }), `${rj} rejected at resume`),
+        cs.some((c) => c.fraud_blocked) ? h("span", {}, h("i", { class: "sw", style: "background:var(--bad)" }), `${cs.filter((c) => c.fraud_blocked).length} stopped: fraud`) : null));
     }
     if (stage === "stage4_evaluation") {  // the final lists, after the hiring manager's approval
       const fin = cs.map((c) => c.reviews?.final?.decision).filter(Boolean);
@@ -550,7 +559,7 @@ function renderPipeline() {
   }));
 }
 
-const FILTERS = [["all", "All"], ["shortlisted", "Shortlisted"], ["rejected", "Rejected"], ["review", "Needs approval"], ["awaiting", "Awaiting candidate"], ["evaluated", "Interview scored"], ["failed", "Failed"]];
+const FILTERS = [["all", "All"], ["shortlisted", "Shortlisted"], ["rejected", "Rejected"], ["review", "Needs approval"], ["awaiting", "Awaiting candidate"], ["evaluated", "Interview scored"], ["fraud", "Fraud detected"], ["failed", "Failed"]];
 function setFilter(f) { state.filter = f; renderKPIs(); renderFilters(); renderRows(); }
 function renderFilters() {
   $("filters").replaceChildren(...FILTERS.map(([k, l]) =>
@@ -961,6 +970,8 @@ async function loadResults() {
 
 // ---------- resume credibility ----------
 function credFlag(c) {
+  if (c.fraud_blocked) return h("span", { class: "flag fraud", title: "Stopped by the resume credibility checks. Open the candidate to see the evidence.", style: "margin-left:6px" }, "🚫 Fraud detected");
+  if (c.fraud_cleared) return h("span", { class: "flag", title: `Cleared by ${c.fraud_cleared.by}: ${c.fraud_cleared.note || "no note"}`, style: "margin-left:6px" }, `flags cleared by ${c.fraud_cleared.by}`);
   const s = c.credibility;
   if (!s || !(s.red || s.amber)) return null;
   return h("span", { class: "flag " + (s.red ? "bad" : ""), title: "Resume credibility: open the candidate to see the evidence", style: "margin-left:6px" },
@@ -986,7 +997,28 @@ function credibilitySection(c, rec) {
   const dot = { red: "var(--bad)", amber: "var(--warn)", green: "var(--ok)" };
   const label = { red: "Issue", amber: "Check", green: "Confirmed" };
   const flags = rec?.flags || [];
+  const fraudBox = c.fraud_blocked ? (() => {
+    const reason = h("input", { type: "text", maxlength: "300", placeholder: "Why it's fine, e.g. LinkedIn not updated since the job change" });
+    const clear = h("button", { class: "btn", style: "padding:4px 10px;font-size:12px" }, "Clear & let continue");
+    clear.onclick = async () => {
+      const by = approverName();
+      if (!by) { switchTab("approvals"); $("approver").focus(); return toast("Enter your name in “Approving as” first.", true); }
+      if (!reason.value.trim()) { reason.focus(); return toast("Say why the flags are innocent before clearing them.", true); }
+      if (!confirm(`Clear the fraud flag for ${c.display_name} as ${by}? They'll continue to resume scoring, and your name and reason are recorded.`)) return;
+      clear.disabled = true;
+      try {
+        await postJSON(`/api/candidate/${c.candidate_id}/clear-fraud`, { by, note: reason.value.trim() });
+        toast(`${c.display_name} cleared by ${by}.`);
+        delete state.detailCache[c.candidate_id]; state.sig = null; await refresh(); selectCandidate(c.candidate_id, { keepScroll: true });
+      } catch (err) { toast("Couldn't clear: " + err.message, true); clear.disabled = false; }
+    };
+    return h("div", { class: "fraudbox" },
+      h("div", {}, h("b", {}, "🚫 Fraud detected: "), `${s?.red || 0} issue${s?.red === 1 ? "" : "s"} below. This candidate is stopped: no scoring, invite, interview or approval.`),
+      h("div", { class: "row" }, reason, clear));
+  })() : c.fraud_cleared ? h("div", { class: "small muted", style: "margin-bottom:10px" },
+      `Flags cleared by ${c.fraud_cleared.by} on ${fmtTime(c.fraud_cleared.at)}: “${c.fraud_cleared.note || ""}”. New issues would stop them again.`) : null;
   return h("div", { class: "section" },
+    fraudBox,
     h("h3", {}, "Resume credibility",
       s ? h("span", { class: "small muted", style: "text-transform:none;letter-spacing:0" },
         `${s.red} issue${s.red === 1 ? "" : "s"} · ${s.amber} to check · ${s.green} confirmed${s.linkedin ? " · LinkedIn compared" : ""}`) : null),

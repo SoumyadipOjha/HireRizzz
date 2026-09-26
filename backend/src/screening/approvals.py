@@ -52,12 +52,13 @@ def _by(by: str | None) -> str:
 # ---------------------------------------------------------------------------
 
 def awaiting_shortlist_review(entry: CandidateEntry) -> bool:
-    return entry.stages["stage2_shortlisting"].status == "success" and "shortlist" not in entry.reviews
+    return (entry.stages["stage2_shortlisting"].status == "success" and "shortlist" not in entry.reviews
+            and not entry.fraud_blocked)
 
 
 def awaiting_final_review(entry: CandidateEntry) -> bool:
     return (entry.stages["stage4_evaluation"].status == "success" and "final" not in entry.reviews
-            and resume_decision(entry) == "shortlisted")
+            and resume_decision(entry) == "shortlisted" and not entry.fraud_blocked)
 
 
 # ---------------------------------------------------------------------------
@@ -75,6 +76,9 @@ def approve_shortlist(ctx: RunContext, decisions: dict[str, str], *, by: str, no
     checked = {}
     for cid, value in decisions.items():
         entry = index.get(cid)  # KeyError for unknown ids
+        if entry.fraud_blocked:
+            raise ApprovalError(f"{entry.display_name or cid}: fraud detected. Review the credibility flags and "
+                                "clear them first if they're innocent")
         s2 = entry.stages["stage2_shortlisting"]
         if s2.status != "success":
             raise ApprovalError(f"{entry.display_name or cid}: resume screening hasn't finished (status {s2.status})")
@@ -105,6 +109,9 @@ def approve_final(ctx: RunContext, decisions: dict[str, str], *, by: str, note: 
     checked = {}
     for cid, value in decisions.items():
         entry = index.get(cid)
+        if entry.fraud_blocked:
+            raise ApprovalError(f"{entry.display_name or cid}: fraud detected. Review the credibility flags and "
+                                "clear them first if they're innocent")
         s4 = entry.stages["stage4_evaluation"]
         if s4.status != "success":
             raise ApprovalError(f"{entry.display_name or cid}: the interview hasn't been evaluated yet")

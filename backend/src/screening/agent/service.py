@@ -92,6 +92,8 @@ class InterviewService:
     def start(self, token: str, channel: CallChannel, access_key: str | None = None) -> dict:
         inv = self.invites.validate(token)
         entry = self._entry(inv.candidate_id)
+        if entry.fraud_blocked:
+            raise InviteError("this link is no longer active")
         full_name, email = self._contact(entry)
         if verification_required(self.ctx.config, email) and not has_access(inv, access_key):
             raise VerificationError("Please confirm the code we emailed you before starting.", 403)

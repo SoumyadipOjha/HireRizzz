@@ -13,6 +13,7 @@ from .schemas import (
     CandidateEntry,
     CandidatesIndexDoc,
     CredibilitySummary,
+    FraudClearance,
     Notification,
     Review,
     ReviewGate,
@@ -128,10 +129,26 @@ class CandidateIndex:
         self.save(candidate_id)
         return entry
 
-    def set_credibility(self, candidate_id: str, summary: CredibilitySummary) -> CandidateEntry:
+    def set_credibility(self, candidate_id: str, summary: CredibilitySummary, *, block_min_red: int = 0) -> CandidateEntry:
+        """Store the check results. With block_min_red > 0, that many red issues stop the candidate,
+        unless a recruiter already cleared them and no new issues have appeared since."""
         entry = self.get(candidate_id)
         entry.credibility = summary
+        cleared = entry.fraud_cleared
+        if cleared and summary.red > cleared.red_at_clearance:
+            entry.fraud_cleared = cleared = None  # new evidence after the clearance: stop again
+        entry.fraud_blocked = bool(block_min_red) and summary.red >= block_min_red and cleared is None
         entry.updated_at = utc_now()
+        _recompute(entry)
+        self.save(candidate_id)
+        return entry
+
+    def clear_fraud(self, candidate_id: str, clearance: FraudClearance) -> CandidateEntry:
+        entry = self.get(candidate_id)
+        entry.fraud_cleared = clearance
+        entry.fraud_blocked = False
+        entry.updated_at = utc_now()
+        _recompute(entry)
         self.save(candidate_id)
         return entry
 
@@ -159,6 +176,8 @@ def _recompute(entry: CandidateEntry) -> None:
     final = entry.reviews.get("final")
     if "failed" in statuses:
         entry.overall_status = "failed"
+    elif entry.fraud_blocked:
+        entry.overall_status = "fraud"
     elif final is not None:
         entry.overall_status = "selected" if final.decision == "shortlisted" else "not_selected"
     elif resume_decision(entry) == "rejected":

@@ -71,6 +71,12 @@ evaluation:
     motivation: 0.20
   min_verified_quotes: 1          # a scored competency with fewer verified quotes is flagged "needs review"
 
+credibility:
+  # Resume checks + LinkedIn cross-check. Red issues = "Fraud detected": the candidate is stopped before
+  # scoring, invite, interview and approvals until a recruiter clears it (name + reason are recorded).
+  block_on_fraud: true
+  min_red_to_block: 1             # red issues needed to stop a candidate
+
 approvals:
   # The AI suggests; people decide. Nothing is emailed about a decision until a person approved it.
   require_shortlist_approval: true   # interview links go out only after a recruiter approves the resume shortlist
