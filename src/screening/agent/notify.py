@@ -58,6 +58,8 @@ def build_invite_email(config: AppConfig, *, kind: str, to: str, name: str | Non
     return render_email(kind, to=to, subject=subject, values={
         "first_name": first_name(name), "job_title": job.title, "company_name": job.company_name,
         "link": url, "expires_on": expires_on, "minutes": str(call_minutes(config)), "qr_cid": QR_CID,
+        "verify_note": ("Before the call starts we'll email you a one-time code to confirm it's you. "
+                        if config.settings.stage3.verify_email else ""),
     }, images=[InlineImage(cid=QR_CID, data=qr_png(url), filename="screening-link-qr.png")])
 
 

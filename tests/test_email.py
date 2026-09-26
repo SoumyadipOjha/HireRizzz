@@ -56,7 +56,7 @@ def test_invite_email_has_link_button_and_inline_qr(ctx):
 
     text = msg.get_body(preferencelist=("plain",)).get_content()
     html = msg.get_body(preferencelist=("html",)).get_content()
-    assert url in text and "Hi Aarav" in text
+    assert url in text and "Hi Aarav" in text and "one-time code" not in text  # verify_email is off
     assert f'href="{url}"' in html and "Start screening" in html
     assert f'src="cid:{QR_CID}"' in html
     images = [p for p in msg.walk() if p.get_content_type() == "image/png"]
@@ -142,6 +142,7 @@ def test_code_checks(ctx):
 
 @pytest.fixture
 def site(ctx):
+    ctx.config.settings.stage3.verify_email = True  # off in settings.yaml; this tests the code step itself
     aarav = _prepared(ctx)
     run_stage3(ctx)
     svc = InterviewService(ctx, llm_factory=lambda: FakeLLM())
