@@ -442,6 +442,13 @@ function bucket(c) {
 }
 
 async function refresh() {
+  if (state.inflight) return;  // the free backend can take ~a minute to wake up: don't pile up requests
+  state.inflight = true;
+  // First load slower than 3 s: the hosted backend is probably waking up from sleep, say so.
+  const slow = state.ov ? null : setTimeout(() => {
+    $("jobline").textContent = "Waking up the server… this can take up to a minute the first time.";
+    $("updated").textContent = "Connecting…";
+  }, 3000);
   try {
     const ov = await getJSON("/api/overview");
     $("livedot").classList.remove("stale");
@@ -458,6 +465,10 @@ async function refresh() {
   } catch (e) {
     $("livedot").classList.add("stale");
     $("updated").textContent = "Dashboard server unreachable";
+    if (!state.ov) $("jobline").textContent = `Can't reach the backend (${API_BASE || "this server"}). Retrying every few seconds…`;
+  } finally {
+    clearTimeout(slow);
+    state.inflight = false;
   }
 }
 
