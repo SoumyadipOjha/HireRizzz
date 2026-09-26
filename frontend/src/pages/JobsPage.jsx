@@ -63,7 +63,7 @@ export default function JobsPage() {
             setPosting(false);
             reload();
             ins.reload();
-            navigate(`/jobs/${encodeURIComponent(id)}`);
+            navigate(`/jobs/${encodeURIComponent(id)}?share=1`);
           }}
         />
       )}

@@ -510,6 +510,9 @@ details > summary:hover { color: var(--text); }
 @keyframes pop { from { transform: translateY(10px) scale(.98); opacity: 0; } }
 .bar > span { background: var(--grad); transition: width .9s cubic-bezier(.2,.8,.2,1); }
 
+.li-text { font-size: 13.5px; line-height: 1.6; min-height: 340px; }
+.modal-foot .grow { flex: 1; }
+
 @media (max-width: 1100px) {
   .kpis { grid-template-columns: repeat(3, 1fr); }
   .chart-grid { grid-template-columns: 1fr 1fr; }

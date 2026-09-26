@@ -7,12 +7,15 @@ import { Pill, Spinner } from "../ui.jsx";
 import CandidateDrawer from "../components/CandidateDrawer.jsx";
 import ResultsModal from "../components/ResultsModal.jsx";
 import JobDetailsModal from "../components/JobDetailsModal.jsx";
+import LinkedInModal from "../components/LinkedInModal.jsx";
 
 export default function BoardPage({ jobId }) {
   const ov = usePoll(() => api.overview(jobId), 5000, [jobId]);
   const job = usePoll(() => api.job(jobId), 30000, [jobId]);
   const loc = useLocation();
-  const selected = new URLSearchParams(loc.split("?")[1] || "").get("c");
+  const params = new URLSearchParams(loc.split("?")[1] || "");
+  const selected = params.get("c");
+  const share = params.get("share") === "1";
   const [search, setSearch] = useState("");
   const [modal, setModal] = useState(null); // "results" | "details"
   const [uploading, setUploading] = useState(false);
@@ -201,6 +204,7 @@ export default function BoardPage({ jobId }) {
       )}
       {modal === "results" && <ResultsModal jobId={jobId} overview={data} onClose={() => setModal(null)} onChanged={refresh} onOpen={(cid) => (setModal(null), select(cid))} />}
       {modal === "details" && info && <JobDetailsModal info={info} onClose={() => setModal(null)} onChanged={refresh} />}
+      {share && info && <LinkedInModal job={info.job} justPosted onClose={() => select(null)} />}
     </main>
   );
 }

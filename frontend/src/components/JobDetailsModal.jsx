@@ -2,10 +2,13 @@ import { useState } from "react";
 import { fmtDate } from "../lib.js";
 import { KV, Modal } from "../ui.jsx";
 import PostJobModal from "./PostJobModal.jsx";
+import LinkedInModal from "./LinkedInModal.jsx";
 
 export default function JobDetailsModal({ info, onClose, onChanged }) {
   const [editing, setEditing] = useState(false);
+  const [sharing, setSharing] = useState(false);
   const j = info.job || {};
+  if (sharing) return <LinkedInModal job={info.job} onClose={() => setSharing(false)} />;
   if (editing) {
     return (
       <PostJobModal
@@ -26,7 +29,7 @@ export default function JobDetailsModal({ info, onClose, onChanged }) {
     <Modal
       title={j.title}
       onClose={onClose}
-      footer={<><button className="btn" onClick={onClose}>Close</button><button className="btn primary" onClick={() => setEditing(true)}>Edit job</button></>}
+      footer={<><button className="btn" onClick={onClose}>Close</button><button className="btn" onClick={() => setEditing(true)}>Edit job</button><button className="btn primary" onClick={() => setSharing(true)}>LinkedIn post</button></>}
     >
       <KV rows={[
         ["Company", j.company_name],
