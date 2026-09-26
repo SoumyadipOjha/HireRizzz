@@ -32,7 +32,8 @@ from screening.stage3_call import run_stage3
 def outbox(ctx, kind: str):
     """Messages of one kind (invite, reminder, otp, ...) written to <data>/outbox, oldest first."""
     folder = ctx.config.data.root / "outbox"
-    files = sorted(folder.glob(f"*_{kind}_*.eml")) if folder.exists() else []
+    name = re.compile(rf"^\d+T\d+_{re.escape(kind)}_[0-9a-f]{{8}}\.eml$")  # "selected" must not match "not_selected"
+    files = sorted(f for f in folder.glob("*.eml") if name.match(f.name)) if folder.exists() else []
     return [email.message_from_bytes(f.read_bytes(), policy=policy.default) for f in files]
 
 

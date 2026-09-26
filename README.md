@@ -121,6 +121,29 @@ uv run screening --email outbox call             # dry run: emails go to data/ou
   `screening serve --host 0.0.0.0`. The dashboard still only answers on the
   machine itself.
 
+## Approvals and results (the AI suggests, people decide)
+
+```
+Stage 2 (AI suggests) -> recruiter approves / overrides -> shortlisted: interview link emailed
+                                                         -> rejected:    polite rejection email
+Stage 3 call -> Stage 4 (AI scores, suggests) -> hiring manager approves / overrides the final lists
+                                              -> send-results: "selected" / "not selected" emails
+```
+
+```bash
+uv run screening review                                   # who is waiting at each gate, with AI suggestions
+uv run screening approve-shortlist --by "Riya" --accept-ai        # or --shortlist ID / --reject ID to override
+uv run screening evaluate                                 # Stage 4 (also runs automatically after each call)
+uv run screening approve-final --by "Dev (Manager)" --accept-ai   # records the manager's final decisions
+uv run screening send-results                             # emails them (never twice)
+uv run screening results --csv final.csv                  # the output: final shortlisted and rejected lists
+```
+
+Every decision stores what the AI suggested, who decided, when, and whether it was overridden.
+Stage 4 scores four competencies from the transcript; each score must be backed by quotes that code
+checks word for word against the candidate's own lines (quotes that aren't there are dropped and the
+candidate is flagged *needs review*). Weights and the threshold are under `evaluation` in settings.yaml.
+
 ## Tests
 
 ```bash

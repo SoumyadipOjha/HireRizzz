@@ -55,3 +55,32 @@ def test_serve_passes_host(monkeypatch, tmp_path, cmd):
     monkeypatch.setattr("screening.dashboard.serve", lambda cfg, **kw: seen.update(kw))
     assert cli.main(["--data-dir", str(tmp_path), cmd, "--host", "0.0.0.0", "--no-browser"]) == 0
     assert seen == {"port": 8765, "open_browser": False, "host": "0.0.0.0"}
+
+
+def test_review_approve_and_results_commands(ctx, data_dir, monkeypatch, capsys):
+    from conftest import FakeLLM
+
+    from screening.stage0_ingest import ingest
+    from screening.stage1_extract import run_stage1
+    from screening.stage2_shortlist import run_stage2
+
+    ingest(ctx)
+    run_stage1(ctx, FakeLLM())
+    run_stage2(ctx, FakeLLM())
+    base = ["--data-dir", str(data_dir)]
+    assert cli.main(base + ["call"]) == 0  # the CLI uses settings.yaml: approval is required first
+    assert "Interview links" not in capsys.readouterr().out
+
+    assert cli.main(base + ["review"]) == 0
+    out = capsys.readouterr().out
+    assert "Resume shortlist (recruiter): 3 waiting" in out and "--accept-ai" in out
+
+    assert cli.main(base + ["approve-shortlist", "--by", "Riya", "--accept-ai"]) == 0
+    out = capsys.readouterr().out
+    assert "Recorded 3 decision(s): 1 invited, 2 rejected." in out and "Aarav Sharma" in out
+
+    assert cli.main(base + ["results", "--csv", str(data_dir / "r.csv")]) == 0
+    out = capsys.readouterr().out
+    assert "FINAL SHORTLIST (0)" in out and (data_dir / "r.csv").exists()
+    assert cli.main(base + ["approve-final", "--by", "M"]) == 0
+    assert "Nothing to approve" in capsys.readouterr().out

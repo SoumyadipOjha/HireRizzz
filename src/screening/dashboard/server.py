@@ -36,10 +36,59 @@ _CSP = ("default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self'
 
 
 class DashboardAPI:
-    def __init__(self, config: AppConfig):
+    def __init__(self, config: AppConfig, ctx=None, mailer_factory=None):
         self.config = config
         self.store = config.store
         self.invites = InviteStore(self.store)
+        self._ctx = ctx
+        self._mailer_factory = mailer_factory
+
+    @property
+    def ctx(self):
+        if self._ctx is None:
+            from ..context import RunContext
+
+            self._ctx = RunContext.create(self.config)
+        return self._ctx
+
+    def _mailer(self):
+        if self._mailer_factory is None:
+            return None  # approvals.py builds one from settings (and handles "not configured")
+        return self._mailer_factory()
+
+    # -------------------------------------------------------------- approvals (loopback only)
+
+    def approve(self, gate: str, body: dict) -> dict:
+        from ..approvals import approve_final, approve_shortlist
+
+        decisions = body.get("decisions")
+        if not isinstance(decisions, dict) or not decisions or len(decisions) > 1000:
+            raise ValueError("decisions must be an object of candidate_id -> shortlisted|rejected")
+        if not all(isinstance(k, str) and _UUID.match(k) for k in decisions):
+            raise ValueError("decisions contains an invalid candidate_id")
+        note = body.get("note") if isinstance(body.get("note"), str) else None
+        by = body.get("by") if isinstance(body.get("by"), str) else ""
+        with self.ctx.lock:
+            if gate == "shortlist":
+                return approve_shortlist(self.ctx, decisions, by=by, note=note, mailer=self._mailer())
+            return approve_final(self.ctx, decisions, by=by, note=note)
+
+    def send_results(self) -> dict:
+        from ..approvals import send_final_results
+
+        with self.ctx.lock:
+            return {"emails": send_final_results(self.ctx, self._mailer())}
+
+    def results(self) -> dict:
+        from ..approvals import final_results
+
+        with self.ctx.lock:
+            return final_results(self.ctx)
+
+    def results_csv(self) -> str:
+        from ..approvals import results_csv
+
+        return results_csv(self.results())
 
     def _index(self) -> dict:
         try:
@@ -184,6 +233,12 @@ class Handler(BaseHTTPRequestHandler):
                 return self._json(data) if data else self._json({"error": "not found"}, HTTPStatus.NOT_FOUND)
             if path == "/api/failures":
                 return self._json(self.api.failures())
+            if path == "/api/results":
+                return self._json(self.api.results())
+            if path == "/api/results.csv":
+                body = self.api.results_csv().encode("utf-8-sig")  # BOM: Excel opens UTF-8 names correctly
+                return self._send(200, body, "text/csv; charset=utf-8",
+                                  {"Content-Disposition": f'attachment; filename="{self._csv_name()}"'})
             if path == "/api/log":
                 n = int(parse_qs(url.query).get("lines", ["300"])[0])
                 return self._json({"log": self.api.log_tail(max(1, min(n, 5000)))})
@@ -196,9 +251,44 @@ class Handler(BaseHTTPRequestHandler):
         try:
             if m := _INTERVIEW_API.match(path):
                 return self._interview(m.group(1), m.group(2), method="POST")
+            if path in ("/api/approve/shortlist", "/api/approve/final", "/api/send-results"):
+                return self._dashboard_action(path)
             return self._json({"error": "not found"}, HTTPStatus.NOT_FOUND)
         except Exception as e:
             return self._json({"error": f"{type(e).__name__}: {e}"}, HTTPStatus.INTERNAL_SERVER_ERROR)
+
+    def _same_origin_json(self) -> bool:
+        """Dashboard actions change data and send email: refuse cross-site requests. A page on
+        another site can make the browser POST here, but not with a JSON content type (that
+        needs a CORS preflight this server never grants), and its Origin header gives it away."""
+        if (self.headers.get("Content-Type") or "").split(";")[0].strip().lower() != "application/json":
+            return False
+        origin = self.headers.get("Origin")
+        if origin is None:
+            return True  # non-browser clients (curl, tests)
+        host = self.headers.get("Host", "")
+        return origin in (f"http://{host}", f"https://{host}")
+
+    def _dashboard_action(self, path: str) -> None:
+        from ..approvals import ApprovalError
+
+        if not self._is_loopback():
+            return self._json({"error": "not found"}, HTTPStatus.NOT_FOUND)
+        if not self._same_origin_json():
+            return self._json({"error": "forbidden"}, HTTPStatus.FORBIDDEN)
+        try:
+            body = self._body()
+            if path == "/api/send-results":
+                return self._json(self.api.send_results())
+            return self._json(self.api.approve(path.rsplit("/", 1)[-1], body))
+        except (ApprovalError, ValueError) as e:
+            return self._json({"error": str(e)}, HTTPStatus.BAD_REQUEST)
+        except KeyError as e:
+            return self._json({"error": str(e).strip("'\"")}, HTTPStatus.NOT_FOUND)
+
+    def _csv_name(self) -> str:
+        job_id = re.sub(r"[^A-Za-z0-9_-]+", "-", self.api.config.job.job_id)[:60] or "results"
+        return f"final-results-{job_id}.csv"
 
     def _interview(self, token: str, action: str, method: str) -> None:
         if not TOKEN_RE.match(token):
@@ -253,7 +343,7 @@ def serve(config: AppConfig, port: int = 8765, open_browser: bool = True, host: 
 
     ctx = RunContext.create(config)
     interviews = InterviewService(ctx, llm_factory=lambda: make_client(config))
-    httpd = ThreadingHTTPServer((host, port), partial(Handler, api=DashboardAPI(config), interviews=interviews))
+    httpd = ThreadingHTTPServer((host, port), partial(Handler, api=DashboardAPI(config, ctx=ctx), interviews=interviews))
     url = f"http://127.0.0.1:{port}/"
     print(f"Dashboard:  {url}   (storage: {config.store.describe()})", flush=True)
     print(f"Interviews: {config.settings.stage3.public_base_url}/interview/<token>   — Ctrl+C to stop", flush=True)

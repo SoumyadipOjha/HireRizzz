@@ -99,6 +99,12 @@ class EvaluationConfig(_Strict):
         return self
 
 
+class ApprovalsConfig(_Strict):
+    """Human gates. The AI suggests; people decide (approvals.py)."""
+    require_shortlist_approval: bool = True   # invites go out only after a recruiter approves the resume shortlist
+    email_resume_rejections: bool = True      # candidates rejected at the resume stage get a polite email
+
+
 class LLMConfig(_Strict):
     provider: str
     model: str
@@ -171,6 +177,7 @@ class Settings(_Strict):
     llm: LLMConfig
     stage3: Stage3Config = Stage3Config()
     evaluation: EvaluationConfig = EvaluationConfig()
+    approvals: ApprovalsConfig = ApprovalsConfig()
     storage: StorageConfig = StorageConfig()
     email: EmailConfig = EmailConfig()
     logging: LoggingConfig = LoggingConfig()

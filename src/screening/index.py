@@ -12,6 +12,9 @@ from .schemas import (
     STAGES,
     CandidateEntry,
     CandidatesIndexDoc,
+    Notification,
+    Review,
+    ReviewGate,
     StageName,
     StageState,
     StageStatus,
@@ -95,10 +98,18 @@ class CandidateIndex:
         entry.stages[stage] = StageState(status=status, output_path=output_path, updated_at=now, run_id=run_id,
                                          error=error, note=note, decision=decision, score=score)
         # Any new result for a stage makes everything downstream of it stale.
+        changed = [stage]
         for later in STAGES[STAGES.index(stage) + 1:]:
             if entry.stages[later].status != "pending":
                 entry.stages[later] = StageState(updated_at=now, run_id=run_id,
                                                  note=f"reset: upstream {stage} re-ran")
+                changed.append(later)
+        # ...and so are approvals based on it (notifications already sent stay as history).
+        if "stage2_shortlisting" in changed or stage == "stage1_extraction":
+            entry.reviews.pop("shortlist", None)
+            entry.reviews.pop("final", None)
+        elif "stage4_evaluation" in changed:
+            entry.reviews.pop("final", None)
         if display_name:
             entry.display_name = display_name
         entry.updated_at = now
@@ -106,17 +117,43 @@ class CandidateIndex:
         self.save(candidate_id)
         return entry
 
+    def set_review(self, candidate_id: str, gate: ReviewGate, review: Review) -> CandidateEntry:
+        entry = self.get(candidate_id)
+        entry.reviews[gate] = review
+        if gate == "shortlist":
+            entry.reviews.pop("final", None)
+        entry.updated_at = utc_now()
+        _recompute(entry)
+        self.save(candidate_id)
+        return entry
+
+    def set_notification(self, candidate_id: str, gate: ReviewGate, notification: Notification) -> CandidateEntry:
+        entry = self.get(candidate_id)
+        entry.notifications[gate] = notification
+        entry.updated_at = utc_now()
+        self.save(candidate_id)
+        return entry
+
+
+def resume_decision(entry: CandidateEntry) -> str | None:
+    """The recruiter's shortlist decision if made, else the AI's Stage 2 suggestion."""
+    review = entry.reviews.get("shortlist")
+    return review.decision if review else entry.stages["stage2_shortlisting"].decision
+
 
 def _recompute(entry: CandidateEntry) -> None:
-    """Derive current_stage / overall_status from stage states (spec §3)."""
+    """Derive current_stage / overall_status from stage states and approvals (spec §3)."""
     st = entry.stages
     statuses = [st[s].status for s in STAGES]
 
     entry.current_stage = next((s for s in STAGES if st[s].status != "success"), STAGES[-1])
 
+    final = entry.reviews.get("final")
     if "failed" in statuses:
         entry.overall_status = "failed"
-    elif st["stage2_shortlisting"].decision == "rejected":
+    elif final is not None:
+        entry.overall_status = "selected" if final.decision == "shortlisted" else "not_selected"
+    elif resume_decision(entry) == "rejected":
         entry.overall_status = "rejected"
     elif st["stage4_evaluation"].status == "success":
         entry.overall_status = "evaluated"

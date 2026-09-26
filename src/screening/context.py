@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+import threading
 import uuid
 from dataclasses import dataclass, field
 
@@ -32,6 +33,8 @@ class RunContext:
     index: CandidateIndex
     logger: logging.Logger
     run_id: str = field(default_factory=lambda: str(uuid.uuid4()))
+    # Serialises index changes between the web server's threads (interview finalizers, dashboard approvals).
+    lock: threading.RLock = field(default_factory=threading.RLock, repr=False, compare=False)
 
     @classmethod
     def create(cls, config: AppConfig) -> "RunContext":

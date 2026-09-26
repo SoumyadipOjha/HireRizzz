@@ -41,7 +41,6 @@ class InterviewService:
         self.invites = InviteStore(ctx.config.store)
         self._live: dict[str, _Live] = {}
         self._lock = threading.Lock()          # guards _live
-        self._index_lock = threading.Lock()    # serialises index writes from finalizer threads
         self._threads: list[threading.Thread] = []
 
     @property
@@ -138,7 +137,7 @@ class InterviewService:
     # -------------------------------------------------------------- internals
 
     def _entry(self, candidate_id: str):
-        with self._index_lock:
+        with self.ctx.lock:
             return self.ctx.index.reload().get(candidate_id).model_copy(deep=True)
 
     def _contact(self, entry) -> tuple[str | None, str | None]:
@@ -171,7 +170,7 @@ class InterviewService:
         from ..stage3_call import finalize_dialogue
 
         def work():
-            with self._index_lock:
+            with self.ctx.lock:
                 cid = live.dialogue.state.candidate_id
                 try:
                     finalize_dialogue(self.ctx, self.llm, live.dialogue, self.invites, live.token)

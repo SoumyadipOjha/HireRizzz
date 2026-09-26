@@ -66,6 +66,11 @@ evaluation:
     motivation: 0.20
   min_verified_quotes: 1          # a scored competency with fewer verified quotes is flagged "needs review"
 
+approvals:
+  # The AI suggests; people decide. Nothing is emailed about a decision until a person approved it.
+  require_shortlist_approval: true   # interview links go out only after a recruiter approves the resume shortlist
+  email_resume_rejections: true      # candidates rejected at the resume stage get a polite email
+
 email:
   # smtp:   send for real via SMTP_* in .env (Gmail: SMTP_USER = your address, SMTP_PASS = 16-char app password)
   # outbox: write every email to <data>/outbox/*.eml instead of sending (dry run). Override with --email.

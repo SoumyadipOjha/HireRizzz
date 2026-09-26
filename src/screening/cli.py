@@ -84,6 +84,103 @@ def cmd_call(args) -> int:
     return _exit_code(s3)
 
 
+def _decisions(args, entries, ai_decision) -> dict[str, str]:
+    """--accept-ai takes the AI's suggestion for everyone waiting; --shortlist/--reject override per id."""
+    out = {e.candidate_id: ai_decision(e) for e in entries} if args.accept_ai else {}
+    for cid in args.shortlist or []:
+        out[cid] = "shortlisted"
+    for cid in args.reject or []:
+        out[cid] = "rejected"
+    return out
+
+
+def cmd_review(args) -> int:
+    from .approvals import awaiting_final_review, awaiting_shortlist_review
+
+    ctx = _ctx(args)
+    gates = [("Resume shortlist (recruiter)", awaiting_shortlist_review, "stage2_shortlisting",
+              "approve-shortlist"),
+             ("Final lists (hiring manager)", awaiting_final_review, "stage4_evaluation", "approve-final")]
+    for title, waiting, stage, cmd in gates:
+        rows = [e for e in ctx.index.all() if waiting(e)]
+        print(f"{title}: {len(rows)} waiting")
+        for e in rows:
+            st = e.stages[stage]
+            flag = "  NEEDS REVIEW" if (st.note or "").startswith("needs review") else ""
+            print(f"  {e.candidate_id}  {(e.display_name or '-')[:24]:24} AI: {st.decision:11} score {st.score:g}{flag}")
+        if rows:
+            print(f"  -> uv run screening {cmd} --by \"Your Name\" --accept-ai   (or --shortlist/--reject ID)")
+        print()
+    return 0
+
+
+def _approve(args, gate: str) -> int:
+    from .approvals import ApprovalError, approve_final, approve_shortlist, awaiting_final_review, \
+        awaiting_shortlist_review
+
+    ctx = _ctx(args)
+    ctx.config.job, ctx.config.questions
+    waiting, stage = ((awaiting_shortlist_review, "stage2_shortlisting") if gate == "shortlist"
+                      else (awaiting_final_review, "stage4_evaluation"))
+    decisions = _decisions(args, [e for e in ctx.index.all() if waiting(e)], lambda e: e.stages[stage].decision)
+    if not decisions:
+        print("Nothing to approve: pass --accept-ai, or --shortlist / --reject with candidate ids.")
+        return 0
+    try:
+        if gate == "shortlist":
+            r = approve_shortlist(ctx, decisions, by=args.by, note=args.note)
+            print(f"Recorded {r['recorded']} decision(s): {len(r['invited'])} invited, {len(r['rejected'])} rejected.")
+            _print_invites(ctx, r["invited"])
+        else:
+            r = approve_final(ctx, decisions, by=args.by, note=args.note)
+            print(f"Recorded {r['recorded']} final decision(s). Email the candidates with: uv run screening send-results")
+    except ApprovalError as e:
+        print(f"ERROR: {e}", file=sys.stderr)
+        return 2
+    return 0
+
+
+def cmd_approve_shortlist(args) -> int:
+    return _approve(args, "shortlist")
+
+
+def cmd_approve_final(args) -> int:
+    return _approve(args, "final")
+
+
+def cmd_send_results(args) -> int:
+    from .approvals import send_final_results
+
+    ctx = _ctx(args)
+    ctx.config.job
+    sent = send_final_results(ctx)
+    for cid, status in sent.items():
+        print(f"  {ctx.index.get(cid).display_name or cid:24} {status}")
+    print(f"{sum(s in ('sent', 'outbox') for s in sent.values())} of {len(sent)} result email(s) sent")
+    return 1 if any(s == "failed" for s in sent.values()) else 0
+
+
+def cmd_results(args) -> int:
+    from .approvals import final_results, results_csv
+
+    ctx = _ctx(args)
+    lists = final_results(ctx)
+    if args.csv:
+        Path(args.csv).write_text(results_csv(lists), encoding="utf-8-sig")
+        print(f"wrote {args.csv}")
+    for key, title in (("shortlisted", "FINAL SHORTLIST"), ("rejected", "REJECTED"),
+                       ("awaiting_approval", "WAITING FOR MANAGER APPROVAL")):
+        rows = lists[key]
+        print(f"{title} ({len(rows)})")
+        for r in rows:
+            extra = " (overrode AI)" if r["overridden"] else ""
+            extra += f"  email: {r['email_status']}" if r["email_status"] else ""
+            print(f"  {(r['name'] or '-')[:24]:24} final {r['final_score']:>6g}  resume {r['resume_score']:>6g}  "
+                  f"interview {r['interview_score']:>6g}  AI: {r['ai_suggestion']}{extra}")
+        print()
+    return 0
+
+
 def cmd_remind(args) -> int:
     from .agent.notify import send_reminders
     from .mailer import make_mailer
@@ -282,6 +379,25 @@ def build_parser() -> argparse.ArgumentParser:
                                      help="Email active links again (e.g. after fixing SMTP settings)")
 
     stage_cmd("evaluate", "Stage 4: score finished interviews and suggest final decisions (LLM)", cmd_evaluate)
+
+    s = sub.add_parser("review", help="Show candidates waiting at an approval gate")
+    s.set_defaults(func=cmd_review)
+    for name, func, help_ in (
+            ("approve-shortlist", cmd_approve_shortlist,
+             "Gate: recruiter approves the resume shortlist (invites / rejection emails go out)"),
+            ("approve-final", cmd_approve_final, "Gate: hiring manager approves the final lists")):
+        s = sub.add_parser(name, help=help_)
+        s.add_argument("--by", required=True, help="Who is approving (recorded with each decision)")
+        s.add_argument("--accept-ai", action="store_true", help="Accept the AI suggestion for everyone waiting")
+        s.add_argument("--shortlist", action="append", metavar="CANDIDATE_ID", help="Shortlist this candidate")
+        s.add_argument("--reject", action="append", metavar="CANDIDATE_ID", help="Reject this candidate")
+        s.add_argument("--note", default=None, help="Optional note stored with the decisions")
+        s.set_defaults(func=func)
+    s = sub.add_parser("send-results", help="Email approved final decisions (selected / not selected)")
+    s.set_defaults(func=cmd_send_results)
+    s = sub.add_parser("results", help="Print the final shortlisted and rejected lists")
+    s.add_argument("--csv", type=Path, default=None, help="Also write them to this CSV file")
+    s.set_defaults(func=cmd_results)
 
     s = sub.add_parser("remind", help="Stage 3: email a reminder to candidates who haven't started their call")
     s.set_defaults(func=cmd_remind)

@@ -1,0 +1,10 @@
+Hi {{first_name}},
+
+Thank you for your interest in the {{job_title}} role at {{company_name}} and for the time you spent on your application.
+
+We received many strong applications. After reviewing your profile against this role's requirements, we won't be moving your application forward this time.
+
+This decision is about the fit for this specific role, not your overall ability. We'd be glad to see your application for future openings that match your experience.
+
+We wish you every success,
+The {{company_name}} recruiting team

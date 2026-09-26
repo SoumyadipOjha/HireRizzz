@@ -1,0 +1,10 @@
+Hi {{first_name}},
+
+Thank you for completing the screening conversation for {{job_title}} at {{company_name}}. We appreciate the time and thought you put into it.
+
+After careful review, we've decided to move forward with other candidates whose experience more closely matches what this role needs right now.
+
+This was a close decision in a strong group. We'll keep your profile on file and would be glad to hear from you about future roles.
+
+With best wishes,
+The {{company_name}} recruiting team

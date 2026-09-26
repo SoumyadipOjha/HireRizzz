@@ -1,0 +1,8 @@
+Hi {{first_name}},
+
+Thank you for completing the screening conversation for {{job_title}} at {{company_name}}. We're happy to tell you that you've been shortlisted for the next round.
+
+What happens next: a member of our team will contact you within a few working days to arrange the next interview. There's nothing you need to do right now.
+
+We look forward to speaking with you,
+The {{company_name}} recruiting team

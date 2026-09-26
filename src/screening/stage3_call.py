@@ -17,6 +17,7 @@ from .agent.invites import InviteStore
 from .agent.notify import email_invite, interview_url  # noqa: F401  (interview_url re-exported)
 from .config import AppConfig, ConfigError
 from .context import RunContext, StageSummary
+from .index import resume_decision
 from .llm import LLMClient
 from .mailer import Mailer, make_mailer, mask_email
 from .prompts import load_prompt
@@ -27,6 +28,7 @@ from .stage2_shortlist import JoinKeyMismatchError, load_stage1
 STAGE = "stage3_calling"
 UPSTREAM = "stage2_shortlisting"
 PROMPT_DIR = "stage3_calling"
+WAITING_FOR_APPROVAL = "waiting for a recruiter to approve the resume shortlist"
 
 
 def _questions_block(config: AppConfig) -> str:
@@ -82,8 +84,15 @@ def run_stage3(ctx: RunContext, *, force: bool = False, only: set[str] | None = 
             ctx.skip(STAGE, entry, f"{UPSTREAM} is '{up.status}', not 'success'")
             summary.skipped.append(cid)
             continue
-        if up.decision != "shortlisted":
-            ctx.skip(STAGE, entry, f"not shortlisted in {UPSTREAM} (decision={up.decision}, score={up.score})")
+        review = entry.reviews.get("shortlist")
+        if review is None and ctx.config.settings.approvals.require_shortlist_approval:
+            if st.note != WAITING_FOR_APPROVAL:
+                ctx.skip(STAGE, entry, WAITING_FOR_APPROVAL)
+            summary.skipped.append(cid)
+            continue
+        if resume_decision(entry) != "shortlisted":
+            who = f"rejected by {review.by}" if review else f"decision={up.decision}, score={up.score}"
+            ctx.skip(STAGE, entry, f"not shortlisted in {UPSTREAM} ({who})")
             summary.skipped.append(cid)
             continue
         if st.status == "skipped" and st.output_path and not force:
@@ -92,7 +101,7 @@ def run_stage3(ctx: RunContext, *, force: bool = False, only: set[str] | None = 
 
         try:
             s2 = load_stage2(entry, ctx.config.store)
-            if s2.decision != "shortlisted":
+            if review is None and s2.decision != "shortlisted":
                 raise ValueError(f"index says shortlisted but {up.output_path} says {s2.decision}")
             inv = None if force else invites.active_for(cid)
             reused = inv is not None

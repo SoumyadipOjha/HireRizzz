@@ -48,6 +48,7 @@ def mctx(data_dir, monkeypatch):
     monkeypatch.setenv("MONGODB_URI", URI)
     monkeypatch.setenv("MONGODB_DB_NAME", db)
     ctx = RunContext.create(load_config(data_dir=data_dir, storage="mongodb"))
+    ctx.config.settings.approvals.require_shortlist_approval = False
     yield ctx
     pymongo.MongoClient(URI).drop_database(db)
 

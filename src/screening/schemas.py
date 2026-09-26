@@ -19,7 +19,8 @@ SCHEMA_VERSION = "1.0"
 StageName = Literal["stage1_extraction", "stage2_shortlisting", "stage3_calling", "stage4_evaluation"]
 STAGES: tuple[StageName, ...] = ("stage1_extraction", "stage2_shortlisting", "stage3_calling", "stage4_evaluation")
 StageStatus = Literal["pending", "success", "failed", "skipped", "awaiting"]
-OverallStatus = Literal["active", "rejected", "failed", "awaiting", "completed", "evaluated"]
+OverallStatus = Literal["active", "rejected", "failed", "awaiting", "completed", "evaluated",
+                        "selected", "not_selected"]
 Decision = Literal["shortlisted", "rejected"]
 COMPETENCIES = ("role_knowledge", "problem_solving", "communication", "motivation")
 
@@ -47,6 +48,32 @@ class StageState(_Model):
     score: float | None = None        # stage2 only
 
 
+ReviewGate = Literal["shortlist", "final"]
+REVIEW_GATES: tuple[ReviewGate, ...] = ("shortlist", "final")
+
+
+class Review(_Model):
+    """A person's decision at an approval gate (approvals.py)."""
+    decision: Decision
+    ai_decision: Decision | None = None   # what the AI suggested at the time
+    by: str                               # who approved (free text: there is no login yet)
+    at: str
+    note: str | None = None
+
+    @property
+    def overridden(self) -> bool:
+        return self.ai_decision is not None and self.ai_decision != self.decision
+
+
+class Notification(_Model):
+    """A result email to the candidate (approvals.py)."""
+    kind: str                             # resume_rejected | selected | not_selected
+    status: Literal["sent", "outbox", "failed", "skipped"]
+    to: str | None = None
+    at: str
+    error: str | None = None
+
+
 class CandidateEntry(_Model):
     candidate_id: str
     source_file: str
@@ -57,6 +84,8 @@ class CandidateEntry(_Model):
     current_stage: StageName = "stage1_extraction"
     overall_status: OverallStatus = "active"
     stages: dict[StageName, StageState] = Field(default_factory=lambda: {s: StageState() for s in STAGES})
+    reviews: dict[ReviewGate, Review] = Field(default_factory=dict)
+    notifications: dict[ReviewGate, Notification] = Field(default_factory=dict)  # keyed by the gate it follows
 
     @model_validator(mode="after")
     def _all_stages(self) -> "CandidateEntry":

@@ -152,4 +152,7 @@ def data_dir(tmp_path: Path) -> Path:
 
 @pytest.fixture
 def ctx(data_dir: Path) -> RunContext:
-    return RunContext.create(load_config(data_dir=data_dir))
+    c = RunContext.create(load_config(data_dir=data_dir))
+    # Most tests drive Stage 3 directly; the approval gates have their own tests (test_approvals.py).
+    c.config.settings.approvals.require_shortlist_approval = False
+    return c
