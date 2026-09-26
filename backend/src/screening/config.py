@@ -104,6 +104,7 @@ class CredibilityConfig(_Strict):
     """Resume credibility checks (credibility.py)."""
     block_on_fraud: bool = True           # red issues stop the candidate before any further stage
     min_red_to_block: int = Field(default=1, ge=1)   # how many red issues count as "fraud detected"
+    company_check: bool = True            # look each employer up in public records (Wikidata) + website
 
 
 class ApprovalsConfig(_Strict):

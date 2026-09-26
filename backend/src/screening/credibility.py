@@ -317,6 +317,10 @@ def build_record(config, entry, *, linkedin_profile: ResumeExtractionLLM | None 
 
     resume = load_stage1(entry, config.store).extraction
     flags = resume_checks(resume, _resume_text(config, entry), today)
+    if config.settings.credibility.company_check:
+        from .company_check import company_checks, default_lookup
+
+        flags += company_checks(resume, default_lookup(), today)
     if linkedin_profile is not None:
         flags += linkedin_checks(resume, linkedin_profile, today)
     order = {"red": 0, "amber": 1, "green": 2}

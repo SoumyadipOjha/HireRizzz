@@ -153,6 +153,17 @@ class FakeLLM(LLMClient):
         raise AssertionError(schema)
 
 
+@pytest.fixture(autouse=True)
+def offline_company_lookup(monkeypatch):
+    """Tests never call Wikidata or company websites: every company is 'not listed' unless a test
+    installs its own lookup."""
+    from screening import company_check
+
+    monkeypatch.setattr(company_check, "_default",
+                        company_check.CompanyLookup(fetch=lambda url: {"search": [], "entities": {}},
+                                                    ping=lambda url: True))
+
+
 @pytest.fixture
 def data_dir(tmp_path: Path) -> Path:
     resumes = tmp_path / "data" / "input" / "resumes"
