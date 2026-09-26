@@ -226,6 +226,26 @@ def cmd_approve_jd(args) -> int:
     return 0
 
 
+def cmd_rebuild_answers(args) -> int:
+    """Store the per-question answers in Stage 3 records written before they existed."""
+    from .stage3_call import answers_for
+
+    ctx = _ctx(args)
+    ctx.config.questions
+    n = 0
+    for e in ctx.index.all():
+        ref = e.stages["stage3_calling"].output_path
+        rec = ctx.config.store.get_record(ref) if ref else None
+        if not rec or rec.get("answers_verbatim"):
+            continue
+        rec["answers_verbatim"] = answers_for(ctx.config, rec)
+        ctx.config.store.put_record("stage3_calls", e.candidate_id, rec)
+        n += 1
+        print(f"  {e.display_name or e.candidate_id}: {sum(a['answered'] for a in rec['answers_verbatim'])} answers stored")
+    print(f"{n} record(s) updated")
+    return 0
+
+
 def cmd_remind(args) -> int:
     from .agent.notify import send_reminders
     from .mailer import make_mailer
@@ -453,6 +473,9 @@ def build_parser() -> argparse.ArgumentParser:
     s = sub.add_parser("results", help="Print the final shortlisted and rejected lists")
     s.add_argument("--csv", type=Path, default=None, help="Also write them to this CSV file")
     s.set_defaults(func=cmd_results)
+
+    s = sub.add_parser("rebuild-answers", help="Store per-question answers in older Stage 3 records")
+    s.set_defaults(func=cmd_rebuild_answers)
 
     s = sub.add_parser("remind", help="Stage 3: email a reminder to candidates who haven't started their call")
     s.set_defaults(func=cmd_remind)

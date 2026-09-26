@@ -26,10 +26,13 @@ from ..agent.verification import VerificationError
 from ..config import AppConfig, ConfigError
 from ..llm.base import LLMError
 from ..schemas import STAGES
+from ..stage3_call import answers_for
 
 STATIC = Path(__file__).parent / "static"
 DEMO_MARKER = "DEMO_DATA.txt"
 MAX_BODY = 16 * 1024
+MAX_UPLOAD_BODY = 30 * 1024 * 1024   # resume upload (base64 JSON): a few files of up to 10 MB
+MAX_RESUME_BYTES = 10 * 1024 * 1024
 _UUID = re.compile(r"^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$")
 _INTERVIEW_API = re.compile(r"^/api/interview/([A-Za-z0-9_-]+)/(info|code|verify|start|turn|end)$")
 _CSP = ("default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; "
@@ -44,6 +47,7 @@ class DashboardAPI:
         self._ctx = ctx
         self._mailer_factory = mailer_factory
         self._llm_factory = llm_factory
+        self.processing = {"running": False, "message": None}  # resume upload -> screening in the background
 
     @property
     def ctx(self):
@@ -74,6 +78,67 @@ class DashboardAPI:
             if gate == "shortlist":
                 return approve_shortlist(self.ctx, decisions, by=by, note=note, mailer=self._mailer())
             return approve_final(self.ctx, decisions, by=by, note=note)
+
+    # -------------------------------------------------------------- resume upload (loopback only)
+
+    def upload_resumes(self, body: dict) -> dict:
+        """Save uploaded .docx/.pdf resumes to the input folder, then screen them (Stages 0-2)
+        in the background. The dashboard shows progress through overview()["processing"]."""
+        import base64
+        import binascii
+
+        from ..resume_reader import SUPPORTED
+
+        files = body.get("files")
+        if not isinstance(files, list) or not files or len(files) > 20:
+            raise ValueError("files must be a list of 1-20 {name, data} objects")
+        folder = self.config.data.input_resumes
+        folder.mkdir(parents=True, exist_ok=True)
+        saved = []
+        for f in files:
+            name = f.get("name") if isinstance(f, dict) else None
+            if not isinstance(name, str) or not isinstance(f.get("data"), str):
+                raise ValueError("each file needs a name and base64 data")
+            stem, suffix = Path(name).stem, Path(name).suffix.lower()
+            if suffix not in SUPPORTED:
+                raise ValueError(f"{name}: only {', '.join(SUPPORTED)} files are accepted")
+            try:
+                data = base64.b64decode(f["data"], validate=True)
+            except (binascii.Error, ValueError):
+                raise ValueError(f"{name}: file data is not valid base64") from None
+            if not data or len(data) > MAX_RESUME_BYTES:
+                raise ValueError(f"{name}: file is empty or larger than 10 MB")
+            safe = re.sub(r"[^A-Za-z0-9_-]+", "_", stem).strip("_")[:60] or "resume"
+            target, i = folder / f"{safe}{suffix}", 1
+            while target.exists() and target.read_bytes() != data:
+                i += 1
+                target = folder / f"{safe}_{i}{suffix}"
+            target.write_bytes(data)
+            saved.append(target.name)
+        if not self.processing["running"]:
+            self.processing.update(running=True, message=f"Screening {len(saved)} resume(s)…")
+            threading.Thread(target=self._screen_uploads, name="screen-uploads", daemon=True).start()
+        return {"saved": saved}
+
+    def _screen_uploads(self) -> None:
+        from ..llm import make_client
+        from ..stage0_ingest import ingest
+        from ..stage1_extract import run_stage1
+        from ..stage2_shortlist import run_stage2
+
+        try:
+            llm = self._llm_factory() if self._llm_factory else make_client(self.config)
+            with self.ctx.lock:
+                ingest(self.ctx)
+                s1 = run_stage1(self.ctx, llm)
+                s2 = run_stage2(self.ctx, llm)
+            failed = len(s1.failed) + len(s2.failed)
+            self.processing.update(message=f"Done: {len(s2.succeeded)} scored" + (f", {failed} failed" if failed else ""))
+        except Exception as e:  # e.g. no API key: show it on the dashboard
+            self.ctx.logger.error("upload screening failed: %s: %s", type(e).__name__, e)
+            self.processing.update(message=f"Screening failed: {e}")
+        finally:
+            self.processing["running"] = False
 
     # -------------------------------------------------------------- JD writer (gate 1, loopback only)
 
@@ -156,6 +221,7 @@ class DashboardAPI:
             "demo": (data.root / DEMO_MARKER).exists(),
             "stages": list(STAGES),
             "failure_count": len(self._failures()),
+            "processing": dict(self.processing),
         }
 
     def candidate(self, cid: str) -> dict | None:
@@ -172,6 +238,7 @@ class DashboardAPI:
         s3 = records.get("stage3_calling")
         if s3 and s3.get("transcript_path"):
             transcript = self.store.get_text(s3["transcript_path"])
+        answers = answers_for(self.config, s3) if s3 else None
         try:
             inv = self.invites.active_for(cid)
         except (OSError, ValueError):
@@ -180,11 +247,28 @@ class DashboardAPI:
                   "sessions": len(inv.sessions), "email_to": inv.email_to, "emailed_at": inv.emailed_at,
                   "email_error": inv.email_error, "reminders_sent": inv.reminders_sent, "opened_at": inv.opened_at,
                   "verified_at": inv.verified_at} if inv else None
-        return {"entry": entry, "records": records, "transcript": transcript, "invite": invite,
+        return {"entry": entry, "records": records, "transcript": transcript, "answers": answers, "invite": invite,
                 "failures": [f for f in self._failures() if f.get("candidate_id") == cid]}
 
     def failures(self) -> list[dict]:
         return self._failures()
+
+    def all_answers(self) -> list[dict]:
+        """Every candidate who has had a screening call, with their answers question by question."""
+        out = []
+        for cid, e in (self._index().get("candidates") or {}).items():
+            ref = (e.get("stages", {}).get("stage3_calling") or {}).get("output_path")
+            s3 = self.store.get_record(ref) if ref else None
+            if not s3:
+                continue
+            s4 = e.get("stages", {}).get("stage4_evaluation") or {}
+            final = (e.get("reviews") or {}).get("final") or {}
+            out.append({"candidate_id": cid, "name": e.get("display_name"), "call": s3.get("call"),
+                        "summary": (s3.get("screening") or {}).get("overall_summary"),
+                        "final_score": s4.get("score"), "ai_suggestion": s4.get("decision"),
+                        "decision": final.get("decision"), "answers": answers_for(self.config, s3)})
+        out.sort(key=lambda r: ((r["call"] or {}).get("ended_at") or ""), reverse=True)
+        return out
 
     def log_tail(self, lines: int) -> str:
         p = self.config.data.pipeline_log
@@ -231,9 +315,9 @@ class Handler(BaseHTTPRequestHandler):
     def _page(self, name: str, extra: dict | None = None) -> None:
         self._send(200, (STATIC / name).read_bytes(), "text/html; charset=utf-8", extra)
 
-    def _body(self) -> dict:
+    def _body(self, limit: int = MAX_BODY) -> dict:
         n = int(self.headers.get("Content-Length") or 0)
-        if n > MAX_BODY:
+        if n > limit:
             raise ValueError("request too large")
         raw = self.rfile.read(n) if n else b"{}"
         data = json.loads(raw.decode("utf-8") or "{}")
@@ -269,6 +353,8 @@ class Handler(BaseHTTPRequestHandler):
                 return self._json(self.api.failures())
             if path == "/api/results":
                 return self._json(self.api.results())
+            if path == "/api/answers":
+                return self._json(self.api.all_answers())
             if path == "/api/jd/draft":
                 return self._json(self.api.jd_draft())
             if path == "/api/results.csv":
@@ -288,7 +374,7 @@ class Handler(BaseHTTPRequestHandler):
             if m := _INTERVIEW_API.match(path):
                 return self._interview(m.group(1), m.group(2), method="POST")
             if path in ("/api/approve/shortlist", "/api/approve/final", "/api/send-results", "/api/jd/draft",
-                        "/api/jd/approve"):
+                        "/api/jd/approve", "/api/resumes"):
                 return self._dashboard_action(path)
             return self._json({"error": "not found"}, HTTPStatus.NOT_FOUND)
         except Exception as e:
@@ -314,7 +400,9 @@ class Handler(BaseHTTPRequestHandler):
         if not self._same_origin_json():
             return self._json({"error": "forbidden"}, HTTPStatus.FORBIDDEN)
         try:
-            body = self._body()
+            body = self._body(MAX_UPLOAD_BODY if path == "/api/resumes" else MAX_BODY)
+            if path == "/api/resumes":
+                return self._json(self.api.upload_resumes(body))
             if path == "/api/send-results":
                 return self._json(self.api.send_results())
             if path == "/api/jd/draft":

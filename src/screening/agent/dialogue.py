@@ -33,6 +33,7 @@ class Turn:
     speaker: Literal["agent", "candidate"]
     text: str
     at: str = field(default_factory=utc_now)
+    step: str | None = None   # candidate turns: "consent" or the id of the question being answered
 
 
 @dataclass
@@ -96,7 +97,9 @@ class ScreeningDialogue:
         if not text:  # silence / empty recognition: repeat the last line without recording it twice
             return self._agent(self._last_agent_line() or load_prompt(PROMPT_DIR, "agent_fallback.md").text.strip(),
                                log_only=True)
-        self.state.turns.append(Turn("candidate", text))
+        st = self.state
+        step = "consent" if st.phase == "consent" else self.questions[min(st.q_index, len(self.questions) - 1)].id
+        self.state.turns.append(Turn("candidate", text, step=step))
 
         if self._candidate_turns() >= self.s3.max_candidate_turns:
             self.log.warning("stage3 agent: session=%s hit max_candidate_turns", self.state.session_id)

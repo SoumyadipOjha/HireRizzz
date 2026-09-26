@@ -87,6 +87,7 @@ def test_bad_weights_rejected(weights):
 def test_missing_api_key(monkeypatch):
     cfg = load_config()
     monkeypatch.delenv(cfg.settings.llm.api_key_env, raising=False)
+    monkeypatch.setattr("screening.config.load_dotenv", lambda *a, **k: False)  # ignore a real key in .env
     with pytest.raises(ConfigError, match="not set"):
         cfg.api_key()
 
@@ -178,3 +179,72 @@ def test_blind_profile_hides_identity():
     for secret in ("Aarav", "+91", "@example.com", "Hyderabad"):
         assert secret not in out
     assert "FastAPI" in out
+
+
+def test_gemini_retries_only_transient_errors(monkeypatch):
+    from google.genai import errors
+
+    from screening.llm.base import LLMError
+    from screening.llm.gemini import GeminiClient
+
+    class R(__import__("pydantic").BaseModel):
+        ok: bool
+
+    def err(code):
+        return errors.APIError(code, {"error": {"code": code, "status": "X", "message": "m"}})
+
+    class Resp:
+        text, candidates, prompt_feedback = '{"ok": true}', [], None
+
+    calls = []
+
+    def fake(outcomes):
+        def gen(**kw):
+            calls.append(1)
+            o = outcomes.pop(0)
+            if isinstance(o, Exception):
+                raise o
+            return o
+        return gen
+
+    c = GeminiClient(api_key="k", model="m", retry_delays=(0.5, 1.0))
+    slept = []
+    c._sleep = slept.append
+    monkeypatch.setattr(c._client.models, "generate_content", fake([err(503), err(429), Resp()]))
+    assert c.generate_json(system="s", prompt="p", schema=R).ok and slept == [0.5, 1.0]
+
+    monkeypatch.setattr(c._client.models, "generate_content", fake([err(503), err(503), err(503)]))
+    with pytest.raises(LLMError, match="503"):
+        c.generate_json(system="s", prompt="p", schema=R)
+
+    calls.clear()
+    monkeypatch.setattr(c._client.models, "generate_content", fake([err(400)]))
+    with pytest.raises(LLMError, match="400"):
+        c.generate_json(system="s", prompt="p", schema=R)
+    assert len(calls) == 1  # a real error is never retried
+
+
+def test_fallback_client_uses_the_next_model():
+    from pydantic import BaseModel
+
+    from screening.llm import FallbackClient
+    from screening.llm.base import LLMClient, LLMError
+
+    class R(BaseModel):
+        ok: bool
+
+    class C(LLMClient):
+        provider = "p"
+
+        def __init__(self, model, fail):
+            self.model, self.fail = model, fail
+
+        def generate_json(self, **kw):
+            if self.fail:
+                raise LLMError(f"{self.model} down")
+            return R(ok=True)
+
+    f = FallbackClient([C("a", True), C("b", False)])
+    assert f.generate_json(system="s", prompt="p", schema=R).ok and f.model == "b"
+    with pytest.raises(LLMError, match="b down"):
+        FallbackClient([C("a", True), C("b", True)]).generate_json(system="s", prompt="p", schema=R)

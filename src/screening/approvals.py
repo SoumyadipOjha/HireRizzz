@@ -97,7 +97,9 @@ def approve_shortlist(ctx: RunContext, decisions: dict[str, str], *, by: str, no
 
 
 def approve_final(ctx: RunContext, decisions: dict[str, str], *, by: str, note: str | None = None) -> dict:
-    """Record the hiring manager's final decisions. Emails go out with send_final_results()."""
+    """Record the hiring manager's final decisions. Emails go out with send_final_results().
+    The manager has the last word: any evaluated candidate can be shortlisted or rejected whatever
+    their score, and an earlier final decision can be changed (the change is logged)."""
     by = _by(by)
     index = ctx.index.reload()
     checked = {}
@@ -110,11 +112,23 @@ def approve_final(ctx: RunContext, decisions: dict[str, str], *, by: str, note: 
             raise ApprovalError(f"{entry.display_name or cid}: was not shortlisted at the resume stage")
         checked[cid] = (_decision(value), s4.decision)
     now = utc_now()
+    changed = []
     for cid, (decision, ai) in checked.items():
-        index.set_review(cid, "final", Review(decision=decision, ai_decision=ai, by=by, at=now, note=note))
-        ctx.logger.info("approvals: final candidate_id=%s %s by %s%s", cid, decision.upper(), by,
-                        f" (AI suggested {ai})" if ai and ai != decision else "")
-    return {"recorded": len(checked)}
+        before = index.get(cid).reviews.get("final")
+        if before and before.decision != decision:
+            changed.append(cid)
+            note_ = f"changed from {before.decision} (by {before.by})" + (f"; {note}" if note else "")
+        else:
+            note_ = note
+        index.set_review(cid, "final", Review(decision=decision, ai_decision=ai, by=by, at=now, note=note_))
+        ctx.logger.info("approvals: final candidate_id=%s %s by %s%s%s", cid, decision.upper(), by,
+                        f" (AI suggested {ai})" if ai and ai != decision else "",
+                        f" (changed from {before.decision})" if cid in changed else "")
+    return {"recorded": len(checked), "changed": changed}
+
+
+def result_kind(decision: str) -> str:
+    return "selected" if decision == "shortlisted" else "not_selected"
 
 
 def send_final_results(ctx: RunContext, mailer: Mailer | None = None, *, only: set[str] | None = None) -> dict:
@@ -126,10 +140,10 @@ def send_final_results(ctx: RunContext, mailer: Mailer | None = None, *, only: s
         final = entry.reviews.get("final")
         if final is None or (only and cid not in only):
             continue
+        kind = result_kind(final.decision)
         prev = entry.notifications.get("final")
-        if prev and prev.status in ("sent", "outbox"):
-            continue
-        kind = "selected" if final.decision == "shortlisted" else "not_selected"
+        if prev and prev.status in ("sent", "outbox") and prev.kind == kind:
+            continue  # already told the candidate this decision (a changed decision is emailed again)
         out[cid] = send_result(ctx, entry, "final", kind, mailer).status
     return out
 
@@ -204,7 +218,10 @@ def final_results(ctx: RunContext) -> dict[str, list[dict]]:
             "ai_suggestion": s4.decision, "decision": final.decision if final else None,
             "decided_by": final.by if final else None, "decided_at": final.at if final else None,
             "overridden": final.overridden if final else False, "needs_review": bool(rec.get("needs_review")),
-            "email_status": note.status if note else None, "candidate_id": entry.candidate_id,
+            "email_status": note.status if note else None, "email_kind": note.kind if note else None,
+            "email_current": bool(final and note and note.status in ("sent", "outbox")
+                                  and note.kind == result_kind(final.decision)),
+            "below_threshold": s4.decision == "rejected", "candidate_id": entry.candidate_id,
         }
         key = final.decision if final else "awaiting_approval"
         lists[key].append({"list": key, **row})

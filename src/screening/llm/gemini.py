@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import copy
+import time
 from typing import Any
 
 from google import genai
@@ -10,6 +11,9 @@ from google.genai import errors, types
 from pydantic import BaseModel
 
 from .base import LLMClient, LLMError, LLMResponseError, T, parse_json_response
+
+# Gemini errors worth one more try after a short wait: 429 rate limit, 503 overloaded.
+TRANSIENT_CODES = {429, 503}
 
 # Keys from Pydantic's JSON Schema that Gemini's response_schema (OpenAPI subset) does not accept.
 _DROP_KEYS = {"title", "additionalProperties", "default", "$defs", "examples"}
@@ -63,14 +67,17 @@ def to_gemini_schema(model: type[BaseModel]) -> dict[str, Any]:
 class GeminiClient(LLMClient):
     provider = "gemini"
 
-    def __init__(self, *, api_key: str, model: str, temperature: float = 0.0, timeout_seconds: int = 120):
+    def __init__(self, *, api_key: str, model: str, temperature: float = 0.0, timeout_seconds: int = 120,
+                 retry_delays: tuple[float, ...] = (2.0, 5.0)):
         self.model = model
         self.temperature = temperature
+        self.retry_delays = tuple(retry_delays)  # only for TRANSIENT_CODES; () = never retry
+        self._sleep = time.sleep
         self._client = genai.Client(
             api_key=api_key,
             http_options=types.HttpOptions(
                 timeout=timeout_seconds * 1000,
-                # Policy: no retries anywhere (log-and-skip instead). Disable SDK-level retries explicitly.
+                # SDK-level retries stay off; the only retries are the short transient ones above.
                 retry_options=types.HttpRetryOptions(attempts=1),
             ),
         )
@@ -82,12 +89,19 @@ class GeminiClient(LLMClient):
             response_mime_type="application/json",
             response_schema=to_gemini_schema(schema),
         )
-        try:
-            resp = self._client.models.generate_content(model=self.model, contents=prompt, config=config)
-        except errors.APIError as e:
-            raise LLMError(f"Gemini API error {e.code} {e.status}: {e.message}") from e
-        except Exception as e:  # network/timeouts surface as httpx errors
-            raise LLMError(f"Gemini request failed: {type(e).__name__}: {e}") from e
+        for attempt in range(len(self.retry_delays) + 1):
+            try:
+                resp = self._client.models.generate_content(model=self.model, contents=prompt, config=config)
+                break
+            except errors.APIError as e:
+                # Overloaded (503) / rate-limited (429) are temporary: wait briefly and try again.
+                # Everything else fails at once (log-and-skip).
+                if e.code in TRANSIENT_CODES and attempt < len(self.retry_delays):
+                    self._sleep(self.retry_delays[attempt])
+                    continue
+                raise LLMError(f"Gemini API error {e.code} {e.status}: {e.message}") from e
+            except Exception as e:  # network/timeouts surface as httpx errors
+                raise LLMError(f"Gemini request failed: {type(e).__name__}: {e}") from e
 
         text = resp.text
         if not text:

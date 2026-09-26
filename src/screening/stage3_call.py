@@ -13,6 +13,7 @@ from datetime import datetime
 from pathlib import Path
 
 from .agent.dialogue import ScreeningDialogue
+from .agent.answers import build_answers, turns_from_transcript
 from .agent.invites import InviteStore
 from .agent.notify import email_invite, interview_url  # noqa: F401  (interview_url re-exported)
 from .config import AppConfig, ConfigError
@@ -174,12 +175,13 @@ def save_transcript(ctx: RunContext, candidate_id: str, transcript: str) -> str:
 
 
 def write_stage3_record(ctx: RunContext, llm: LLMClient, *, candidate_id: str, call: CallInfo, transcript_ref: str,
-                        parsed: TranscriptParseLLM, prompt_file: str) -> str:
+                        parsed: TranscriptParseLLM, prompt_file: str, turns) -> str:
+    """`turns`: the conversation (Turn objects or dicts) the per-question answers are built from."""
     record = Stage3Record(
         candidate_id=candidate_id, run_id=ctx.run_id,
         llm=LLMInfo(provider=llm.provider, model=llm.model, prompt_file=prompt_file),
         job_id=ctx.config.job.job_id, call=call, transcript_path=transcript_ref,
-        screening=parsed)
+        screening=parsed, answers_verbatim=build_answers(turns, ctx.config.questions.questions, parsed.answers))
     return ctx.config.store.put_record("stage3_calls", candidate_id, record.model_dump(mode="json"))
 
 
@@ -220,7 +222,7 @@ def finalize_dialogue(ctx: RunContext, llm: LLMClient, dialogue: ScreeningDialog
         parsed, prompt_file = parse_transcript(ctx, llm, candidate_id=cid, candidate_name=st.candidate_name,
                                                transcript=dialogue.transcript_text())
         rel = write_stage3_record(ctx, llm, candidate_id=cid, call=call, transcript_ref=tref, parsed=parsed,
-                                  prompt_file=prompt_file)
+                                  prompt_file=prompt_file, turns=st.turns)
     except Exception as e:
         ctx.fail(STAGE, entry, e)
         return None
@@ -252,7 +254,21 @@ def parse_local_transcript(ctx: RunContext, llm: LLMClient, candidate_id: str, t
     tref = save_transcript(ctx, candidate_id, transcript)
     call = CallInfo(channel="local_transcript_file", session_id=None, status="completed")
     ref = write_stage3_record(ctx, llm, candidate_id=candidate_id, call=call, transcript_ref=tref, parsed=parsed,
-                              prompt_file=prompt_file)
+                              prompt_file=prompt_file, turns=turns_from_transcript(transcript))
     ctx.index.set_stage(candidate_id, STAGE, "success", run_id=ctx.run_id, output_path=ref,
                         note="parsed from a local transcript file")
     return ref
+
+
+def answers_for(ctx_or_config, record: dict) -> list[dict]:
+    """The stored per-question answers of a Stage 3 record, or (older records) rebuilt from the saved
+    session / transcript without changing anything."""
+    config = getattr(ctx_or_config, "config", ctx_or_config)
+    if record.get("answers_verbatim"):
+        return record["answers_verbatim"]
+    store = config.store
+    sid = (record.get("call") or {}).get("session_id")
+    session = store.get_record(store.ref("sessions", sid)) if sid else None
+    turns = session.get("turns") if session else turns_from_transcript(store.get_text(record.get("transcript_path") or "") or "")
+    parsed = [ScreeningAnswerLLM.model_validate(a) for a in (record.get("screening") or {}).get("answers", [])]
+    return [a.model_dump() for a in build_answers(turns or [], config.questions.questions, parsed)]

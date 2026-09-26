@@ -62,3 +62,44 @@ def test_bad_requests(server, path, code):
     with pytest.raises(urllib.error.HTTPError) as e:
         _get(base + path)
     assert e.value.code == code
+
+
+def test_upload_resumes_screens_them(ctx):
+    import base64
+    import time
+
+    from conftest import SAMPLES
+
+    api = DashboardAPI(ctx.config, ctx=ctx, llm_factory=lambda: FakeLLM())
+    httpd = ThreadingHTTPServer(("127.0.0.1", 0), partial(Handler, api=api))
+    threading.Thread(target=httpd.serve_forever, daemon=True).start()
+    base = f"http://127.0.0.1:{httpd.server_address[1]}"
+
+    def post(body):
+        req = urllib.request.Request(base + "/api/resumes", data=json.dumps(body).encode(),
+                                     headers={"Content-Type": "application/json"})
+        try:
+            with urllib.request.urlopen(req) as r:
+                return r.status, json.loads(r.read())
+        except urllib.error.HTTPError as e:
+            return e.code, json.loads(e.read())
+
+    try:
+        for f in ctx.config.data.input_resumes.iterdir():
+            f.unlink()
+        data = base64.b64encode((SAMPLES / "resumes" / "aarav_sharma.docx").read_bytes()).decode()
+        status, r = post({"files": [{"name": "../../Aarav Sharma CV.docx", "data": data}]})
+        assert status == 200 and r["saved"] == ["Aarav_Sharma_CV.docx"]  # path parts stripped
+        assert (ctx.config.data.input_resumes / "Aarav_Sharma_CV.docx").exists()
+        for _ in range(100):
+            if not api.processing["running"]:
+                break
+            time.sleep(0.1)
+        [entry] = ctx.index.reload().all()
+        assert entry.display_name == "Aarav Sharma" and entry.stages["stage2_shortlisting"].decision == "shortlisted"
+        assert api.processing["message"].startswith("Done: 1 scored")
+        assert post({"files": [{"name": "cv.exe", "data": data}]})[0] == 400
+        assert post({"files": [{"name": "cv.pdf", "data": "not base64!!"}]})[0] == 400
+    finally:
+        httpd.shutdown()
+        httpd.server_close()

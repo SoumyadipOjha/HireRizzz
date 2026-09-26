@@ -53,6 +53,10 @@ class Store(ABC):
         """Write (replace) one document; returns its ref."""
 
     @abstractmethod
+    def ref(self, collection: Collection, key: str) -> str:
+        """The ref put_record(collection, key, ...) returns / would return."""
+
+    @abstractmethod
     def get_record(self, ref: str) -> dict | None:
         """Read a document by ref; None if missing or unreadable."""
 

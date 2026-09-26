@@ -69,6 +69,9 @@ class FileStore(Store):
         write_json_atomic(path, doc)
         return self.data.rel(path)
 
+    def ref(self, collection: Collection, key: str) -> str:
+        return self.data.rel(self._dir(collection) / f"{key}.json")
+
     def get_record(self, ref: str) -> dict | None:
         if parse_mongo_ref(ref):
             return None  # written by the MongoDB backend; not readable from files

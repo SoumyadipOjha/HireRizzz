@@ -32,9 +32,14 @@ scoring:
 
 llm:
   provider: gemini
-  model: gemini-3.8-flash
+  model: gemini-3-flash-preview   # free tier: ~20 requests/day per model
+  fallback_models:                # tried in order if the model above fails (each has its own free quota)
+    - gemini-3.1-flash-lite
+    - gemini-3.5-flash
+    - gemini-3.8-flash
   temperature: 0.0
   timeout_seconds: 120
+  transient_retry_delays: [2, 5]  # retry only Gemini 429 (rate limit) / 503 (overloaded), after these waits
   api_key_env: GEMINI_API_KEY
 
 stage3:

@@ -271,12 +271,31 @@ class AgentTurnLLM(_Model):
     say: str = Field(description="Exactly what the agent says next, spoken aloud: 1-3 short sentences, no lists, no markdown")
 
 
+class ExchangeTurn(_Model):
+    speaker: Literal["agent", "candidate"]
+    text: str
+    at: str | None = None
+
+
+class CallAnswer(_Model):
+    """One screening question and exactly what the candidate said about it (built by code, not the LLM)."""
+    question_id: str
+    question: str
+    kind: Literal["role", "logistics"] = "logistics"
+    answered: bool                        # the candidate said something while this question was open
+    answer_text: str | None               # the candidate's own words for this question, joined in order
+    exchange: list[ExchangeTurn]          # the agent's lines (incl. follow-ups) and the candidate's replies
+    ai_summary: str | None = None         # the transcript parser's summary of the answer
+    mapping: Literal["exact", "inferred"] = "exact"   # inferred = older call, matched from the agent's wording
+
+
 class Stage3Record(Envelope):
     stage: Literal["stage3_calling"] = "stage3_calling"
     job_id: str
     call: CallInfo
     transcript_path: str
     screening: TranscriptParseLLM
+    answers_verbatim: list[CallAnswer] = []
 
 
 # ---------------------------------------------------------------------------

@@ -187,3 +187,26 @@ def test_approvals_over_http(dash):
     with urllib.request.urlopen(base + "/api/results.csv") as resp:
         assert resp.headers["Content-Disposition"].startswith('attachment; filename="final-results-')
         assert resp.read().decode("utf-8-sig").startswith("list,name,email,final_score")
+
+
+def test_manager_can_overrule_the_pass_mark_and_change_a_decision(gated):
+    ctx = gated
+    ids = _ids(ctx)
+    cid = ids["Aarav Sharma"]
+    approve_shortlist(ctx, {cid: "shortlisted"}, by="Riya")
+    _interview(ctx, cid, "Aarav Sharma")
+    approve_final(ctx, {cid: "rejected"}, by="Dev (Manager)")
+    assert send_final_results(ctx) == {cid: "outbox"} and len(outbox(ctx, "not_selected")) == 1
+    [row] = final_results(ctx)["rejected"]
+    assert row["email_current"] and row["email_kind"] == "not_selected"
+
+    # the manager changes their mind: the change is recorded and the new result can be emailed
+    r = approve_final(ctx, {cid: "shortlisted"}, by="Dev (Manager)")
+    assert r["changed"] == [cid]
+    review = ctx.index.get(cid).reviews["final"]
+    assert review.decision == "shortlisted" and review.note.startswith("changed from rejected")
+    [row] = final_results(ctx)["shortlisted"]
+    assert not row["email_current"] and row["email_kind"] == "not_selected"  # the old result went out
+    assert send_final_results(ctx) == {cid: "outbox"} and len(outbox(ctx, "selected")) == 1
+    assert final_results(ctx)["shortlisted"][0]["email_current"]
+    assert send_final_results(ctx) == {}  # and never twice for the same decision

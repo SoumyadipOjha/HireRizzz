@@ -110,6 +110,10 @@ class LLMConfig(_Strict):
     model: str
     temperature: float = Field(default=0.0, ge=0, le=2)
     timeout_seconds: int = Field(default=120, gt=0)
+    # Waits (seconds) before retrying a 429 rate-limit / 503 overloaded error; [] = never retry.
+    transient_retry_delays: list[float] = Field(default_factory=lambda: [2.0, 5.0], max_length=5)
+    # Tried in order when `model` fails (overloaded / free daily quota used up). Same API key.
+    fallback_models: list[str] = Field(default_factory=list, max_length=5)
     api_key_env: str = "GEMINI_API_KEY"
 
 
