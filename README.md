@@ -1,6 +1,6 @@
 # Recruiting Screening Pipeline (Stages 1–3)
 
-`.docx` resumes → **Stage 1** structured profile → **Stage 2** shortlist
+`.docx` / `.pdf` resumes → **Stage 1** structured profile → **Stage 2** shortlist
 decision → **Stage 3** screening call + parsed transcript. Every candidate
 gets structured JSON at each stage, joined by one UUID4 `candidate_id`.
 Stage 4 (HR filter) is out of scope.
@@ -39,7 +39,7 @@ runs the pipeline against a real MongoDB in a throwaway database (skipped if non
 ## Run
 
 ```bash
-# put the .docx resumes in data/input/resumes/, then:
+# put the .docx or .pdf resumes in data/input/resumes/, then:
 uv run screening run            # ingest + stages 1-3
 uv run screening status         # table view of candidates_index.json
 ```

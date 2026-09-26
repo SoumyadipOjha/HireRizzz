@@ -1,11 +1,11 @@
-"""Stage 1 — resume (.docx) -> structured profile JSON via the LLM."""
+"""Stage 1 — resume (.docx / .pdf) -> structured profile JSON via the LLM."""
 
 from __future__ import annotations
 
 from datetime import date
 
 from .context import RunContext, StageSummary
-from .docx_reader import read_docx
+from .resume_reader import read_resume
 from .llm import LLMClient
 from .paths import resolve_stored
 from .prompts import load_prompt
@@ -48,11 +48,11 @@ def run_stage1(ctx: RunContext, llm: LLMClient, *, force: bool = False,
             if entry.source_sha256 and sha256_file(path) != entry.source_sha256:
                 raise SourceChangedError("file changed since ingest; run `screening ingest` again")
 
-            text = read_docx(path)
+            text = read_resume(path)
             if len(text) < th.min_resume_chars:
                 raise ResumeTooShortError(
                     f"only {len(text)} characters of text extracted (min {th.min_resume_chars}); "
-                    "empty or image-only resume?")
+                    "empty, scanned or image-only resume?")
             truncated = len(text) > th.max_resume_chars
             if truncated:
                 log.warning("%s: candidate_id=%s text truncated from %d to %d chars",
@@ -64,8 +64,8 @@ def run_stage1(ctx: RunContext, llm: LLMClient, *, force: bool = False,
 
             if not extraction.full_name:
                 log.warning("%s: candidate_id=%s no candidate name found in resume", STAGE, cid)
-            if not extraction.phone:
-                log.warning("%s: candidate_id=%s no phone number found (Stage 3 will skip this candidate)",
+            if not extraction.email:
+                log.warning("%s: candidate_id=%s no email address found (the interview invite can't be emailed)",
                             STAGE, cid)
 
             record = Stage1Record(

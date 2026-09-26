@@ -117,6 +117,9 @@ class DashboardAPI:
             "job": job,
             "job_error": job_error,
             "thresholds": cfg.settings.thresholds.model_dump(),
+            "evaluation": cfg.settings.evaluation.model_dump(),
+            "approvals": cfg.settings.approvals.model_dump(),
+            "email_mode": cfg.settings.email.mode,
             "weights": cfg.settings.scoring.weights,
             "llm": {"provider": cfg.settings.llm.provider, "model": cfg.settings.llm.model},
             "data_dir": data.root.as_posix(),
@@ -145,7 +148,9 @@ class DashboardAPI:
         except (OSError, ValueError):
             inv = None
         invite = {"url": interview_url(self.config, inv.token), "expires_at": inv.expires_at,
-                  "sessions": len(inv.sessions)} if inv else None
+                  "sessions": len(inv.sessions), "email_to": inv.email_to, "emailed_at": inv.emailed_at,
+                  "email_error": inv.email_error, "reminders_sent": inv.reminders_sent, "opened_at": inv.opened_at,
+                  "verified_at": inv.verified_at} if inv else None
         return {"entry": entry, "records": records, "transcript": transcript, "invite": invite,
                 "failures": [f for f in self._failures() if f.get("candidate_id") == cid]}
 

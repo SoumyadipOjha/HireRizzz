@@ -44,7 +44,7 @@ def test_full_pipeline(ctx, data_dir):
     files = _by_file(ctx)
     assert files["broken.docx"].stages["stage1_extraction"].status == "failed"
     assert "DocxReadError" in files["broken.docx"].stages["stage1_extraction"].error
-    assert "Unsupported file type" in files["cv.pdf"].stages["stage1_extraction"].error
+    assert "Not a readable .pdf" in files["cv.pdf"].stages["stage1_extraction"].error  # corrupt PDF, logged
     fails = _failures(ctx)
     assert {f["candidate_id"] for f in fails} == {files["broken.docx"].candidate_id, files["cv.pdf"].candidate_id}
     assert all(f["stage"] == "stage1_extraction" and f["run_id"] == ctx.run_id for f in fails)

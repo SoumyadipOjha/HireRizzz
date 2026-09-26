@@ -75,8 +75,9 @@ header.top { display: flex; align-items: center; gap: 16px; flex-wrap: wrap; mar
 .banner b { font-weight: 650; white-space: nowrap; }
 
 /* KPIs */
-.kpis { display: grid; grid-template-columns: repeat(6, minmax(0, 1fr)); gap: 12px; margin-bottom: 16px; }
-@media (max-width: 1000px) { .kpis { grid-template-columns: repeat(3, minmax(0, 1fr)); } }
+.kpis { display: grid; grid-template-columns: repeat(7, minmax(0, 1fr)); gap: 12px; margin-bottom: 16px; }
+@media (max-width: 1100px) { .kpis { grid-template-columns: repeat(4, minmax(0, 1fr)); } }
+@media (max-width: 760px) { .kpis { grid-template-columns: repeat(3, minmax(0, 1fr)); } }
 @media (max-width: 520px) { .kpis { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
 .kpi { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); padding: 12px 14px;
   box-shadow: var(--shadow); cursor: pointer; text-align: left; }
@@ -214,6 +215,47 @@ pre.log { max-height: 70vh; margin: 0; border-radius: 0 0 var(--radius) var(--ra
 .grid2 { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 16px; }
 @media (max-width: 900px) { .grid2 { grid-template-columns: 1fr; } }
 .hidden { display: none !important; }
+
+/* approvals & results */
+.s-evaluated { color: var(--accent); background: var(--accent-soft); }
+.s-selected, .s-sent { color: var(--ok); background: var(--ok-soft); }
+.s-not_selected { color: var(--bad); background: var(--bad-soft); }
+.s-outbox { color: var(--muted); background: var(--muted-soft); }
+.approver { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; margin-bottom: 14px; }
+.approver label { color: var(--text-2); font-size: 13px; }
+.approver input { border: 1px solid var(--border); background: var(--surface); border-radius: 8px; padding: 6px 10px; min-width: 240px; }
+.approver input:focus { outline: 2px solid var(--accent); outline-offset: -1px; }
+.gates { display: grid; gap: 16px; }
+.cardhead { display: flex; align-items: center; gap: 10px; padding: 12px 14px; border-bottom: 1px solid var(--border); flex-wrap: wrap; }
+.cardhead h2 { font-size: 15px; margin: 0; }
+.cardhead .muted { font-size: 12px; }
+.cardfoot { display: flex; gap: 12px; align-items: center; padding: 10px 14px; border-top: 1px solid var(--border); flex-wrap: wrap; }
+.seg { display: inline-flex; border: 1px solid var(--border); border-radius: 999px; overflow: hidden; }
+.seg button { border: 0; background: var(--surface); padding: 4px 12px; cursor: pointer; font-size: 12px; color: var(--text-2); }
+.seg button + button { border-left: 1px solid var(--border); }
+.seg button.on.yes { background: var(--ok-soft); color: var(--ok); font-weight: 650; }
+.seg button.on.no { background: var(--bad-soft); color: var(--bad); font-weight: 650; }
+.btn { border: 1px solid var(--border); background: var(--surface); border-radius: 8px; padding: 7px 14px; cursor: pointer; font-weight: 600;
+  text-decoration: none; color: inherit; display: inline-flex; gap: 6px; align-items: center; font-size: 13px; }
+.btn:hover:not(:disabled) { background: var(--surface-2); }
+.btn.primary { background: var(--accent); border-color: var(--accent); color: var(--surface); }
+.btn.primary:hover:not(:disabled) { background: var(--accent); filter: brightness(1.08); }
+.btn:disabled { opacity: .5; cursor: not-allowed; }
+.btn:focus-visible, .seg button:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.flag { font-size: 11px; font-weight: 600; color: var(--warn); background: var(--warn-soft); border-radius: 6px; padding: 1px 7px; white-space: nowrap; }
+.flag.ai { color: var(--accent); background: var(--accent-soft); }
+.quote { border-left: 3px solid var(--accent); padding: 1px 0 1px 10px; margin: 4px 0; font-size: 12px; color: var(--text); }
+.dropped { font-size: 12px; color: var(--warn); margin: 2px 0 6px; }
+tbody tr.static { cursor: default; }
+tbody tr.static:hover td { background: inherit; }
+.linkish { border: 0; background: none; padding: 0; color: var(--text); font-weight: 600; cursor: pointer; text-align: left; }
+.linkish:hover { color: var(--accent); }
+.num { font-variant-numeric: tabular-nums; }
+.toast { position: fixed; bottom: 20px; left: 50%; transform: translateX(-50%); background: var(--text); color: var(--bg); padding: 9px 16px;
+  border-radius: 8px; font-size: 13px; z-index: 10; max-width: calc(100vw - 32px); box-shadow: var(--shadow); }
+.toast.err { background: var(--bad); color: #fff; }
+.listhead { display: flex; align-items: baseline; gap: 8px; padding: 12px 14px 4px; }
+.listhead h3 { margin: 0; font-size: 13px; }
 </style>
 </head>
 <body>
@@ -239,6 +281,8 @@ pre.log { max-height: 70vh; margin: 0; border-radius: 0 0 var(--radius) var(--ra
 
   <nav class="tabs" id="tabs">
     <button class="tab active" data-tab="candidates">Candidates</button>
+    <button class="tab" data-tab="approvals">Approvals<span class="count" id="approvalcount">0</span></button>
+    <button class="tab" data-tab="results">Final results</button>
     <button class="tab" data-tab="failures">Failures<span class="count" id="failcount">0</span></button>
     <button class="tab" data-tab="log">Pipeline log</button>
     <button class="tab" data-tab="config">Job &amp; thresholds</button>
@@ -252,7 +296,7 @@ pre.log { max-height: 70vh; margin: 0; border-radius: 0 0 var(--radius) var(--ra
           <div id="filters" style="display:flex;gap:6px;flex-wrap:wrap"></div>
         </div>
         <div class="tablewrap"><table>
-          <thead><tr><th>Candidate</th><th>Status</th><th title="Stage 1 · Stage 2 · Stage 3">Stages</th><th>Score</th></tr></thead>
+          <thead><tr><th>Candidate</th><th>Status</th><th title="Stage 1 · Stage 2 · Stage 3 · Stage 4">Stages</th><th>Resume score</th><th title="Stage 4: resume and interview combined">Final</th></tr></thead>
           <tbody id="rows"></tbody>
         </table></div>
         <div id="norows" class="empty hidden"></div>
@@ -260,6 +304,17 @@ pre.log { max-height: 70vh; margin: 0; border-radius: 0 0 var(--radius) var(--ra
       <aside class="card detail" id="detail"><div class="placeholder">Select a candidate to see their profile, shortlisting breakdown and screening-call result.</div></aside>
     </div>
   </section>
+
+  <section id="tab-approvals" class="hidden">
+    <div class="approver">
+      <label for="approver">Approving as</label>
+      <input id="approver" type="text" maxlength="80" autocomplete="name" placeholder="Your name and role, e.g. Riya (Recruiter)">
+      <span class="muted small">Recorded with every decision, together with the AI's suggestion.</span>
+    </div>
+    <div class="gates" id="gates"></div>
+  </section>
+
+  <section id="tab-results" class="hidden"><div id="resultsview"></div></section>
 
   <section id="tab-failures" class="hidden">
     <div class="card"><div class="tablewrap"><table>
@@ -332,14 +387,19 @@ function candidates() {
     .sort((a, b) => (a.ingested_at || "").localeCompare(b.ingested_at || "") || a.source_file.localeCompare(b.source_file));
 }
 
+// The recruiter's decision if made, else the AI's suggestion (mirrors index.resume_decision).
+const resumeDecision = (c) => c.reviews?.shortlist?.decision || c.stages.stage2_shortlisting.decision;
+const waitingShortlist = (c) => c.stages.stage2_shortlisting.status === "success" && !c.reviews?.shortlist;
+const waitingFinal = (c) => c.stages.stage4_evaluation.status === "success" && !c.reviews?.final && resumeDecision(c) === "shortlisted";
+
 function bucket(c) {
-  const s2 = c.stages.stage2_shortlisting;
   return {
-    shortlisted: s2.decision === "shortlisted",
-    rejected: s2.decision === "rejected",
+    shortlisted: resumeDecision(c) === "shortlisted" && c.reviews?.final?.decision !== "rejected",
+    rejected: resumeDecision(c) === "rejected" || c.reviews?.final?.decision === "rejected",
+    review: waitingShortlist(c) || waitingFinal(c),
     failed: c.overall_status === "failed",
     awaiting: c.stages.stage3_calling.status === "awaiting",
-    completed: c.overall_status === "completed",
+    evaluated: c.stages.stage4_evaluation.status === "success",
   };
 }
 
@@ -378,7 +438,8 @@ function renderAll() {
     h("span", {}, "No Gemini API key is configured, so candidates see “We couldn't start the call”. Copy .env.example to .env in the project folder and set GEMINI_API_KEY (free key: aistudio.google.com/apikey). No restart needed.")));
   if (ov.job_error) banners.append(h("div", { class: "banner err" }, h("b", {}, "Config error"), h("span", {}, ov.job_error)));
 
-  renderKPIs(); renderPipeline(); renderFilters(); renderRows(); renderFailures(); renderConfig();
+  renderKPIs(); renderPipeline(); renderFilters(); renderRows(); renderFailures(); renderConfig(); renderApprovals();
+  if (state.tab === "results") loadResults();
   if (state.selected && !(ov.index.candidates || {})[state.selected]) {  // candidate vanished (e.g. data dir rebuilt)
     state.selected = null;
     $("detail").replaceChildren(h("div", { class: "placeholder" }, "Select a candidate to see their profile, shortlisting breakdown and screening-call result."));
@@ -393,8 +454,9 @@ function renderKPIs() {
     ["all", "Candidates", cs.length, "var(--text-3)"],
     ["shortlisted", "Shortlisted", n("shortlisted"), "var(--ok)"],
     ["rejected", "Rejected", n("rejected"), "var(--bad)"],
+    ["review", "Needs approval", n("review"), "var(--warn)"],
     ["awaiting", "Awaiting candidate", n("awaiting"), "var(--warn)"],
-    ["completed", "Calls parsed", n("completed"), "var(--accent)"],
+    ["evaluated", "Interviews scored", n("evaluated"), "var(--accent)"],
     ["failed", "Failed", n("failed"), "var(--bad)"],
   ];
   $("kpis").replaceChildren(...items.map(([key, label, value, color]) =>
@@ -429,7 +491,7 @@ function renderPipeline() {
   }));
 }
 
-const FILTERS = [["all", "All"], ["shortlisted", "Shortlisted"], ["rejected", "Rejected"], ["awaiting", "Awaiting candidate"], ["completed", "Call parsed"], ["failed", "Failed"]];
+const FILTERS = [["all", "All"], ["shortlisted", "Shortlisted"], ["rejected", "Rejected"], ["review", "Needs approval"], ["awaiting", "Awaiting candidate"], ["evaluated", "Interview scored"], ["failed", "Failed"]];
 function setFilter(f) { state.filter = f; renderKPIs(); renderFilters(); renderRows(); }
 function renderFilters() {
   $("filters").replaceChildren(...FILTERS.map(([k, l]) =>
@@ -455,19 +517,22 @@ function renderRows() {
     return [c.display_name, c.source_file, c.candidate_id].some((x) => (x || "").toLowerCase().includes(q));
   });
   $("rows").replaceChildren(...rows.map((c) => {
-    const overall = c.stages.stage2_shortlisting.decision === "rejected" ? "rejected" : c.overall_status;
+    const overall = c.overall_status;
+    const s4 = c.stages.stage4_evaluation;
     return h("tr", { class: c.candidate_id === state.selected ? "sel" : "", onclick: () => selectCandidate(c.candidate_id), tabindex: "0",
         onkeydown: (e) => { if (e.key === "Enter") selectCandidate(c.candidate_id); } },
       h("td", {}, h("div", { class: "name" }, c.display_name || fileName(c.source_file)), h("div", { class: "file" }, fileName(c.source_file))),
       h("td", {}, pill(overall)),
       h("td", {}, h("span", { class: "dots" }, state.ov.stages.map((s) =>
         h("i", { class: "dot " + c.stages[s].status, title: `${STAGE_LABEL[s]}: ${c.stages[s].status}${c.stages[s].error ? " — " + c.stages[s].error : c.stages[s].note ? " — " + c.stages[s].note : ""}` })))),
-      h("td", {}, scoreCell(c)));
+      h("td", {}, scoreCell(c)),
+      h("td", { class: "num" }, s4.score != null ? h("b", {}, s4.score.toFixed(1)) : h("span", { class: "muted small" }, "—"),
+        waitingShortlist(c) || waitingFinal(c) ? h("div", {}, h("span", { class: "flag" }, "needs approval")) : null));
   }));
   const none = $("norows");
   if (!candidates().length) {
     none.replaceChildren(h("div", {}, "No candidates yet."), h("div", { class: "small", style: "margin-top:6px" },
-      "Put .docx resumes in ", h("code", {}, "data/input/resumes/"), " and run ", h("code", {}, "uv run screening run"), "."));
+      "Put .docx or .pdf resumes in ", h("code", {}, "data/input/resumes/"), " and run ", h("code", {}, "uv run screening run"), "."));
     none.classList.remove("hidden");
   } else if (!rows.length) {
     none.replaceChildren("No candidates match this filter."); none.classList.remove("hidden");
@@ -507,8 +572,8 @@ function copyBtn(text) {
 
 function renderDetail(d) {
   const { entry: c, records: r } = d;
-  const s1 = r.stage1_extraction, s2 = r.stage2_shortlisting, s3 = r.stage3_calling;
-  const overall = c.stages.stage2_shortlisting.decision === "rejected" ? "rejected" : c.overall_status;
+  const s1 = r.stage1_extraction, s2 = r.stage2_shortlisting, s3 = r.stage3_calling, s4 = r.stage4_evaluation;
+  const overall = c.overall_status;
   const out = [];
   out.push(h("div", { class: "dhead" },
     h("h2", {}, c.display_name || fileName(c.source_file), pill(overall)),
@@ -534,7 +599,7 @@ function renderDetail(d) {
         h("dt", {}, "Current role"), h("dd", {}, [x.current_title, x.current_company].filter(Boolean).join(" at ") || "—"),
         h("dt", {}, "Experience"), h("dd", {}, x.total_experience_years != null ? `${x.total_experience_years} years` : "—"),
         h("dt", {}, "Email"), h("dd", {}, val(x.email)),
-        h("dt", {}, "Phone"), h("dd", {}, val(x.phone, "— (Stage 3 will skip)")),
+        h("dt", {}, "Phone"), h("dd", {}, val(x.phone)),
         h("dt", {}, "Location"), h("dd", {}, val(x.location)),
         x.linkedin_url ? [h("dt", {}, "LinkedIn"), h("dd", {}, x.linkedin_url)] : null,
         h("dt", {}, "Education"), h("dd", {}, x.education.length ? x.education.map((e) =>
@@ -591,6 +656,45 @@ function renderDetail(d) {
       h("p", { class: "prose" }, sc.overall_summary),
       d.transcript ? h("details", { style: "margin-top:10px" }, h("summary", {}, "Transcript"), h("pre", { class: "transcript" }, d.transcript)) : null));
   }
+  // interview evaluation
+  if (s4) {
+    out.push(h("div", { class: "section" }, h("h3", {}, "Interview evaluation (Stage 4)", h("span", { class: "flag ai", style: "text-transform:none;letter-spacing:0" }, "AI suggestion")),
+      h("div", { class: "verdict" },
+        h("div", {}, h("div", { class: "big" }, s4.final_score.toFixed(1)), h("div", { class: "of" }, `final score · threshold ${s4.threshold}`)),
+        pill(s4.suggested_decision),
+        h("div", { class: "small muted", style: "flex:1;min-width:180px" },
+          `Resume ${s4.resume_score.toFixed(1)} × ${s4.resume_weight} + interview ${s4.interview_score.toFixed(1)} × ${s4.interview_weight}`)),
+      s4.needs_review ? h("div", { class: "blockbox", style: "margin-bottom:12px" }, h("b", {}, "Look closely before deciding: "), s4.review_reasons.join(" · ")) : null,
+      s4.competencies.map((k) => h("div", { class: "crit" },
+        h("div", {}, k.competency.replaceAll("_", " "), h("div", { class: "w" }, `weight ${Math.round(k.weight * 100)}% · adds ${k.weighted_score}`)),
+        h("div", { class: "track" }, h("i", { style: `width:${k.score}%` })),
+        h("div", { class: "n" }, k.score),
+        h("div", { class: "ev" }, k.rationale,
+          k.evidence_quotes.map((q) => h("div", { class: "quote" }, "“" + q + "”")),
+          k.unverified_quotes.length ? h("div", { class: "dropped" }, `${k.unverified_quotes.length} quote${k.unverified_quotes.length > 1 ? "s" : ""} not found in the transcript were dropped`) : null))),
+      s4.concerns.length ? h("div", { style: "margin-top:10px" }, h("div", { class: "small", style: "color:var(--warn)" }, "Concerns"),
+        h("ul", { style: "margin:4px 0 0;padding-left:18px" }, s4.concerns.map((q) => h("li", {}, q)))) : null,
+      h("p", { class: "prose" }, s4.summary),
+      h("div", { class: "small muted", style: "margin-top:6px" }, `Scored by ${s4.llm?.model || "?"} · ${fmtTime(s4.created_at)} · only quotes found word for word in the candidate's answers are shown`)));
+  }
+
+  // human decisions and result emails
+  const revs = c.reviews || {}, notes = c.notifications || {};
+  if (Object.keys(revs).length || Object.keys(notes).length || waitingShortlist(c) || waitingFinal(c)) {
+    const gateRow = (gate, label) => {
+      const rv = revs[gate], nt = notes[gate];
+      if (!rv && !nt) return (gate === "shortlist" ? waitingShortlist(c) : waitingFinal(c))
+        ? h("div", { class: "step" }, h("span", { class: "sname" }, label), h("span", { class: "flag" }, "waiting"),
+            h("button", { class: "copy", onclick: () => switchTab("approvals") }, "Open approvals →")) : null;
+      return h("div", { class: "step" }, h("span", { class: "sname" }, label), rv ? pill(rv.decision) : h("span"),
+        h("span", { class: "snote" },
+          rv ? `${rv.by} · ${fmtTime(rv.at)}${rv.ai_decision && rv.ai_decision !== rv.decision ? ` · overrode AI (${rv.ai_decision})` : ""}${rv.note ? " · " + rv.note : ""}` : "",
+          nt ? h("div", {}, `Email “${nt.kind.replaceAll("_", " ")}”: ${nt.status}${nt.to ? " to " + nt.to : ""}${nt.error ? " — " + nt.error : ""}`) : null));
+    };
+    out.push(h("div", { class: "section" }, h("h3", {}, "Decisions"),
+      h("div", { class: "timeline" }, gateRow("shortlist", "Resume shortlist"), gateRow("final", "Final decision"))));
+  }
+
   if (st3.status === "awaiting" || d.invite) {
     const inv = d.invite;
     out.push(h("div", { class: "section" }, h("h3", {}, s3 ? "Interview link (another attempt)" : "Screening call (Stage 3)"),
@@ -601,7 +705,11 @@ function renderDetail(d) {
         h("div", { style: "margin-top:8px;display:flex;gap:8px;flex-wrap:wrap" },
           h("button", { class: "iconbtn", onclick: (e) => { navigator.clipboard?.writeText(inv.url); e.target.textContent = "Copied"; setTimeout(() => (e.target.textContent = "Copy link"), 1200); } }, "Copy link"),
           h("a", { class: "iconbtn", href: inv.url, target: "_blank", rel: "noopener noreferrer", style: "text-decoration:none;color:inherit" }, "Open interview ↗")),
-        h("div", { class: "small", style: "margin-top:8px;color:var(--text-2)" }, `Expires ${fmtTime(inv.expires_at)} · ${inv.sessions} attempt${inv.sessions === 1 ? "" : "s"} so far. Share it only with this candidate.`))
+        h("div", { class: "small", style: "margin-top:8px;color:var(--text-2)" }, `Expires ${fmtTime(inv.expires_at)} · ${inv.sessions} attempt${inv.sessions === 1 ? "" : "s"} so far. Share it only with this candidate.`),
+        h("div", { class: "small", style: "margin-top:4px;color:" + (inv.email_error ? "var(--bad)" : "var(--text-2)") },
+          inv.emailed_at ? `Invite emailed to ${inv.email_to} · ${fmtTime(inv.emailed_at)}${inv.reminders_sent ? ` · ${inv.reminders_sent} reminder${inv.reminders_sent > 1 ? "s" : ""}` : ""}`
+                         : `Not emailed${inv.email_error ? ": " + inv.email_error : ""}`,
+          inv.opened_at ? ` · opened ${fmtTime(inv.opened_at)}` : "", inv.verified_at ? " · email verified" : ""))
       : h("div", { class: "small muted" }, st3.note || "No active link. Run `uv run screening call` to issue one.")));
   }
 
@@ -612,6 +720,147 @@ function renderDetail(d) {
         h("div", { style: "font-family:var(--mono);color:var(--bad);word-break:break-word" }, `${f.error_type}: ${f.error}`)))));
   }
   return out;
+}
+
+// ---------- approvals ----------
+// Choices default to the AI's suggestion; people change them before approving.
+state.choices = { shortlist: {}, final: {} };
+(function initApprover() {
+  let saved = ""; try { saved = localStorage.getItem("approver") || ""; } catch (e) {}
+  $("approver").value = saved;
+  $("approver").addEventListener("input", (e) => { try { localStorage.setItem("approver", e.target.value); } catch (err) {} });
+})();
+
+function toast(msg, isErr) {
+  const t = h("div", { class: "toast" + (isErr ? " err" : ""), role: "status" }, msg);
+  document.body.append(t);
+  setTimeout(() => t.remove(), isErr ? 7000 : 4000);
+}
+
+async function postJSON(url, body) {
+  const r = await fetch(url, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body || {}) });
+  let data = {}; try { data = await r.json(); } catch (e) {}
+  if (!r.ok) throw new Error(data.error || `HTTP ${r.status}`);
+  return data;
+}
+
+function openCandidate(cid) { switchTab("candidates"); selectCandidate(cid); }
+
+function seg(gate, cid, value) {
+  const set = (v) => { state.choices[gate][cid] = v; renderApprovals(); };
+  return h("span", { class: "seg", role: "group", "aria-label": "Decision" },
+    h("button", { class: "yes" + (value === "shortlisted" ? " on" : ""), "aria-pressed": String(value === "shortlisted"), onclick: () => set("shortlisted") }, "Shortlist"),
+    h("button", { class: "no" + (value === "rejected" ? " on" : ""), "aria-pressed": String(value === "rejected"), onclick: () => set("rejected") }, "Reject"));
+}
+
+function gateCard({ gate, title, who, list, stage, scoreLabel, explain, action }) {
+  const choices = state.choices[gate];
+  const rows = list.map((c) => {
+    const st = c.stages[stage];
+    const ai = st.decision;
+    const v = choices[c.candidate_id] || ai;
+    const needs = (st.note || "").startsWith("needs review");
+    return h("tr", { class: "static" },
+      h("td", {}, h("button", { class: "linkish", onclick: () => openCandidate(c.candidate_id), title: "Open candidate details" }, c.display_name || fileName(c.source_file)),
+        needs ? h("div", {}, h("span", { class: "flag", title: st.note }, "needs review")) : null),
+      h("td", { class: "num" }, st.score != null ? st.score.toFixed(1) : "—"),
+      h("td", {}, pill(ai, "AI: " + ai)),
+      h("td", {}, seg(gate, c.candidate_id, v), v !== ai ? h("div", { class: "small", style: "color:var(--warn);margin-top:3px" }, "overrides the AI") : null));
+  });
+  const decided = list.map((c) => choices[c.candidate_id] || c.stages[stage].decision);
+  const nYes = decided.filter((d) => d === "shortlisted").length, nNo = decided.length - nYes;
+  const nOver = list.filter((c) => (choices[c.candidate_id] || c.stages[stage].decision) !== c.stages[stage].decision).length;
+  const btn = h("button", { class: "btn primary", disabled: list.length ? null : "disabled" }, action.label(nYes, nNo));
+  btn.onclick = async () => {
+    const by = $("approver").value.trim();
+    if (!by) { $("approver").focus(); return toast("Enter your name in “Approving as” first.", true); }
+    if (!confirm(action.confirm(nYes, nNo, by))) return;
+    btn.disabled = true;
+    const decisions = Object.fromEntries(list.map((c) => [c.candidate_id, choices[c.candidate_id] || c.stages[stage].decision]));
+    try {
+      const r = await postJSON(`/api/approve/${gate}`, { by, decisions });
+      state.choices[gate] = {};
+      toast(action.done(r));
+      state.sig = null; await refresh();
+    } catch (e) { toast("Couldn't save: " + e.message, true); btn.disabled = false; }
+  };
+  return h("div", { class: "card" },
+    h("div", { class: "cardhead" }, h("h2", {}, title), h("span", { class: "muted" }, who), h("span", { class: "spacer" }),
+      h("span", { class: "chip" }, `${list.length} waiting`)),
+    list.length ? h("div", { class: "tablewrap" }, h("table", {},
+      h("thead", {}, h("tr", {}, h("th", {}, "Candidate"), h("th", {}, scoreLabel), h("th", {}, "AI suggests"), h("th", {}, "Your decision"))),
+      h("tbody", {}, rows))) : h("div", { class: "empty" }, explain),
+    list.length ? h("div", { class: "cardfoot" }, btn,
+      h("span", { class: "small muted" }, `${nYes} shortlisted · ${nNo} rejected${nOver ? ` · ${nOver} overriding the AI` : ""}`)) : null);
+}
+
+function renderApprovals() {
+  const cs = candidates();
+  const a = cs.filter(waitingShortlist), b = cs.filter(waitingFinal);
+  $("approvalcount").textContent = a.length + b.length;
+  const mail = state.ov.email_mode === "outbox" ? " (outbox: written to files, not sent)" : "";
+  $("gates").replaceChildren(
+    gateCard({
+      gate: "shortlist", title: "Resume shortlist", who: "Recruiter · after Stage 2", list: a, stage: "stage2_shortlisting",
+      scoreLabel: "Resume score", explain: "Nothing waiting. Candidates appear here once their resume has been scored.",
+      action: {
+        label: (y, n) => `Approve · invite ${y}, reject ${n}`,
+        confirm: (y, n, by) => `Approve as ${by}?\n\n${y} shortlisted candidate(s) get their interview link by email.\n${n} rejected candidate(s) get a polite rejection email.${mail}`,
+        done: (r) => `Saved. ${r.invited.length} invite(s) sent, ${r.rejected.length} rejection(s).`,
+      },
+    }),
+    gateCard({
+      gate: "final", title: "Final lists", who: "Hiring manager · after the interview is scored", list: b, stage: "stage4_evaluation",
+      scoreLabel: "Final score", explain: "Nothing waiting. Candidates appear here once their interview has been scored.",
+      action: {
+        label: (y, n) => `Approve final lists · ${y} shortlisted, ${n} rejected`,
+        confirm: (y, n, by) => `Approve as ${by}?\n\n${y} candidate(s) on the final shortlist, ${n} rejected.\nNo emails are sent yet: you'll send them from Final results.`,
+        done: (r) => `Saved ${r.recorded} final decision(s). Send the result emails from Final results.`,
+      },
+    }));
+}
+
+// ---------- final results ----------
+async function loadResults() {
+  let lists;
+  try { lists = await getJSON("/api/results"); }
+  catch (e) { $("resultsview").replaceChildren(h("div", { class: "card placeholder" }, "Could not load results: " + e.message)); return; }
+  const unsent = [...lists.shortlisted, ...lists.rejected].filter((r) => r.email_status !== "sent" && r.email_status !== "outbox");
+  const send = h("button", { class: "btn primary", disabled: unsent.length ? null : "disabled" },
+    unsent.length ? `Email ${unsent.length} candidate${unsent.length > 1 ? "s" : ""} their result` : "All results emailed");
+  send.onclick = async () => {
+    if (!confirm(`Email ${unsent.length} candidate(s) their final result now?${state.ov.email_mode === "outbox" ? "\n\n(outbox mode: written to files, not sent)" : ""}`)) return;
+    send.disabled = true;
+    try {
+      const r = await postJSON("/api/send-results", {});
+      const st = Object.values(r.emails);
+      const failed = st.filter((s) => s === "failed" || s === "skipped").length;
+      toast(`${st.length - failed} email(s) sent${failed ? `, ${failed} could not be sent (see each candidate)` : ""}.`, failed > 0);
+      state.sig = null; await refresh(); loadResults();
+    } catch (e) { toast("Couldn't send: " + e.message, true); send.disabled = false; }
+  };
+  const table = (rows) => h("div", { class: "tablewrap" }, h("table", {},
+    h("thead", {}, h("tr", {}, ["Candidate", "Final", "Resume", "Interview", "AI suggested", "Decided by", "Result email"].map((t) => h("th", {}, t)))),
+    h("tbody", {}, rows.map((r) => h("tr", { class: "static" },
+      h("td", {}, h("button", { class: "linkish", onclick: () => openCandidate(r.candidate_id) }, r.name || r.candidate_id),
+        h("div", { class: "file" }, r.email || "no email"), r.needs_review ? h("span", { class: "flag" }, "needs review") : null),
+      h("td", { class: "num" }, h("b", {}, r.final_score != null ? r.final_score.toFixed(1) : "—")),
+      h("td", { class: "num" }, r.resume_score != null ? r.resume_score.toFixed(1) : "—"),
+      h("td", { class: "num" }, r.interview_score != null ? r.interview_score.toFixed(1) : "—"),
+      h("td", {}, pill(r.ai_suggestion)),
+      h("td", { class: "small" }, r.decided_by || h("span", { class: "muted" }, "—"),
+        r.overridden ? h("div", {}, h("span", { class: "flag" }, "overrode AI")) : null),
+      h("td", {}, r.email_status ? pill(r.email_status) : h("span", { class: "muted small" }, r.decision ? "not sent" : "—")))))));
+  const block = (title, rows, empty, color) => h("div", {},
+    h("div", { class: "listhead" }, h("i", { class: "sw", style: `background:${color}` }), h("h3", {}, title), h("span", { class: "muted small" }, `${rows.length}`)),
+    rows.length ? table(rows) : h("div", { class: "empty", style: "padding:16px" }, empty));
+  $("resultsview").replaceChildren(h("div", { class: "card" },
+    h("div", { class: "cardhead" }, h("h2", {}, "Final results"),
+      h("span", { class: "muted" }, "Candidates who were interviewed, after the hiring manager's approval"),
+      h("span", { class: "spacer" }), send, h("a", { class: "btn", href: "/api/results.csv" }, "Download CSV")),
+    block("Final shortlist", lists.shortlisted, "No one on the final shortlist yet.", "var(--ok)"),
+    block("Rejected", lists.rejected, "No final rejections yet.", "var(--bad)"),
+    lists.awaiting_approval.length ? block("Waiting for the hiring manager", lists.awaiting_approval, "", "var(--warn)") : null));
 }
 
 // ---------- failures / log / config ----------
@@ -659,6 +908,13 @@ function renderConfig() {
     h("div", { class: "section" }, h("h3", {}, "Criterion weights"),
       Object.entries(w).map(([k, v]) => h("div", { class: "crit" }, h("div", {}, k.replaceAll("_", " ")),
         h("div", { class: "track" }, h("i", { style: `width:${v * 100}%` })), h("div", { class: "n" }, `${Math.round(v * 100)}%`)))),
+    state.ov.evaluation ? h("div", { class: "section" }, h("h3", {}, "Final decision rule (Stage 4)"),
+      h("dl", { class: "kv" },
+        h("dt", {}, "Suggest shortlist if"), h("dd", {}, h("b", {}, `final ≥ ${state.ov.evaluation.final_threshold}`)),
+        h("dt", {}, "Final score"), h("dd", {}, `resume × ${state.ov.evaluation.resume_weight} + interview × ${state.ov.evaluation.interview_weight}`),
+        h("dt", {}, "Approvals"), h("dd", {}, state.ov.approvals?.require_shortlist_approval ? "Recruiter approves the shortlist; manager approves the final lists" : "Manager approves the final lists")),
+      h("div", { style: "margin-top:10px" }, Object.entries(state.ov.evaluation.competency_weights).map(([k, v]) => h("div", { class: "crit" }, h("div", {}, k.replaceAll("_", " ")),
+        h("div", { class: "track" }, h("i", { style: `width:${v * 100}%` })), h("div", { class: "n" }, `${Math.round(v * 100)}%`))))) : null,
     h("div", { class: "section small muted" }, "Edit in config/settings.yaml and config/job_description.yaml, then re-run shortlisting with --force."));
   $("configview").replaceChildren(jobCard, th);
 }
@@ -667,8 +923,9 @@ function renderConfig() {
 function switchTab(tab) {
   state.tab = tab;
   document.querySelectorAll(".tab").forEach((b) => b.classList.toggle("active", b.dataset.tab === tab));
-  ["candidates", "failures", "log", "config"].forEach((t) => $("tab-" + t).classList.toggle("hidden", t !== tab));
+  ["candidates", "approvals", "results", "failures", "log", "config"].forEach((t) => $("tab-" + t).classList.toggle("hidden", t !== tab));
   if (tab === "log") loadLog();
+  if (tab === "results") loadResults();
 }
 document.querySelectorAll(".tab").forEach((b) => (b.onclick = () => switchTab(b.dataset.tab)));
 $("search").addEventListener("input", (e) => { state.q = e.target.value; renderRows(); });
