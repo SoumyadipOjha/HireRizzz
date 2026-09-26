@@ -130,7 +130,7 @@ function Facts({ data }) {
   const [paused, setPaused] = useState(false);
   useEffect(() => {
     if (paused || list.length < 2) return undefined;
-    const t = setInterval(() => setI((x) => (x + 1) % list.length), 5000);
+    const t = setInterval(() => setI((x) => (x + 1) % list.length), 750);
     return () => clearInterval(t);
   }, [paused, list.length]);
   const f = list[i % list.length];

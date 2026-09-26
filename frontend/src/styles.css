@@ -347,10 +347,13 @@ details > summary:hover { color: var(--text); }
 @keyframes gradshift { 0%, 100% { background-position: 0% 50%; } 50% { background-position: 100% 50%; } }
 
 .logo-mark { transition: transform 0.35s cubic-bezier(.34,1.56,.64,1); flex: none; filter: drop-shadow(0 4px 10px rgba(109, 94, 252, 0.35)); }
-.logo-mark .logo-check { stroke-dasharray: 10; stroke-dashoffset: 10; animation: draw 0.6s 0.45s cubic-bezier(.65,0,.35,1) forwards; }
+.logo-mark .logo-check { stroke-dasharray: 10; stroke-dashoffset: 10; animation: drawLoop 2.6s cubic-bezier(.65,0,.35,1) infinite; }
 .logo-mark:not(.animated) .logo-check { stroke-dashoffset: 0; animation: none; }
-.logo-mark.animated .logo-badge { transform-origin: 30.6px 29.8px; animation: badgePop .5s .15s cubic-bezier(.34,1.56,.64,1) both; }
-@keyframes badgePop { from { transform: scale(0); } }
+.logo-mark.animated { animation: logoBounce 2.6s cubic-bezier(.28,.84,.42,1) infinite; }
+.logo-mark.animated .logo-badge { transform-origin: 30.6px 29.8px; animation: badgeLoop 2.6s cubic-bezier(.34,1.56,.64,1) infinite; }
+@keyframes badgeLoop { 0% { transform: scale(0); } 18%, 88% { transform: scale(1); } 100% { transform: scale(0); } }
+@keyframes drawLoop { 0%, 15% { stroke-dashoffset: 10; } 38%, 88% { stroke-dashoffset: 0; } 100% { stroke-dashoffset: 10; } }
+@keyframes logoBounce { 0%, 100% { transform: translateY(0); } 10% { transform: translateY(-5px) scale(1.04); } 20% { transform: translateY(0) scale(.97, 1.03); } 27% { transform: translateY(-2px); } 34% { transform: translateY(0); } }
 .logo-mark .logo-spark { transform-origin: 33px 7.5px; animation: twinkle 2.8s ease-in-out infinite; }
 @keyframes draw { to { stroke-dashoffset: 0; } }
 @keyframes twinkle { 0%, 100% { transform: scale(1) rotate(0); opacity: 1; } 50% { transform: scale(0.55) rotate(45deg); opacity: 0.6; } }
@@ -445,8 +448,8 @@ details > summary:hover { color: var(--text); }
 .gauge-center span { font-size: 12px; color: var(--text-2); margin-top: 4px; }
 .gauge-sub { font-size: 12.5px; color: var(--text-3); margin-top: 4px; text-align: center; }
 .facts { background: linear-gradient(160deg, rgba(109,94,252,.07), rgba(236,72,153,.07)), var(--surface); }
-.fact { flex: 1; display: flex; flex-direction: column; gap: 6px; animation: factIn .55s cubic-bezier(.2,.8,.2,1); }
-@keyframes factIn { from { opacity: 0; transform: translateX(22px) scale(.98); filter: blur(4px); } }
+.fact { flex: 1; display: flex; flex-direction: column; gap: 6px; animation: factIn .3s cubic-bezier(.2,.8,.2,1); }
+@keyframes factIn { from { opacity: 0; transform: translateX(18px); } }
 .fact-emoji { font-size: 26px; animation: bob 3s ease-in-out infinite; width: fit-content; }
 @keyframes bob { 50% { transform: translateY(-4px) rotate(-6deg); } }
 .fact-big { font-family: var(--display); font-size: 38px; font-weight: 700; line-height: 1; letter-spacing: -.03em; }
@@ -499,7 +502,7 @@ details > summary:hover { color: var(--text); }
 .col { background: rgba(242, 241, 248, 0.8); border: 1px solid rgba(230,228,240,.6); border-radius: 16px; }
 .col-title::before { box-shadow: 0 0 0 3px color-mix(in srgb, var(--c) 22%, transparent); border-radius: 50%; }
 .board-head h1 { font-size: 26px; }
-.page-head h2 { font-size: 22px; }
+.page-head h2 { font-size: 22px; font-weight: 800; text-transform: uppercase; letter-spacing: .06em; }
 .drawer { border-radius: 18px 0 0 18px; animation: slide .32s cubic-bezier(.2,.8,.2,1); }
 .big-score { font-family: var(--display); }
 .score-tile b { font-family: var(--display); }
