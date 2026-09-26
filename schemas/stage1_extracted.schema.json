@@ -1,0 +1,421 @@
+{
+  "$defs": {
+    "Education": {
+      "additionalProperties": false,
+      "properties": {
+        "degree": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "e.g. B.Tech, MSc, MBA",
+          "title": "Degree"
+        },
+        "field_of_study": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Field Of Study"
+        },
+        "institution": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Institution"
+        },
+        "graduation_year": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "4-digit year or null",
+          "title": "Graduation Year"
+        }
+      },
+      "required": [
+        "degree",
+        "field_of_study",
+        "institution",
+        "graduation_year"
+      ],
+      "title": "Education",
+      "type": "object"
+    },
+    "LLMInfo": {
+      "additionalProperties": false,
+      "properties": {
+        "provider": {
+          "title": "Provider",
+          "type": "string"
+        },
+        "model": {
+          "title": "Model",
+          "type": "string"
+        },
+        "prompt_file": {
+          "title": "Prompt File",
+          "type": "string"
+        }
+      },
+      "required": [
+        "provider",
+        "model",
+        "prompt_file"
+      ],
+      "title": "LLMInfo",
+      "type": "object"
+    },
+    "ResumeExtractionLLM": {
+      "additionalProperties": false,
+      "properties": {
+        "full_name": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "Candidate's full name",
+          "title": "Full Name"
+        },
+        "email": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Email"
+        },
+        "phone": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "Phone exactly as written, including country code if present",
+          "title": "Phone"
+        },
+        "location": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "Current city/country",
+          "title": "Location"
+        },
+        "linkedin_url": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Linkedin Url"
+        },
+        "headline": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "One-line professional headline, from the resume if present",
+          "title": "Headline"
+        },
+        "summary": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "2-3 sentence neutral summary of the profile",
+          "title": "Summary"
+        },
+        "total_experience_years": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "Total professional experience in years (stated or computed from roles); null if unknowable",
+          "title": "Total Experience Years"
+        },
+        "current_title": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Current Title"
+        },
+        "current_company": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Current Company"
+        },
+        "skills": {
+          "description": "Distinct technical and professional skills, as named in the resume",
+          "items": {
+            "type": "string"
+          },
+          "title": "Skills",
+          "type": "array"
+        },
+        "work_experience": {
+          "description": "Most recent first",
+          "items": {
+            "$ref": "#/$defs/WorkExperience"
+          },
+          "title": "Work Experience",
+          "type": "array"
+        },
+        "education": {
+          "items": {
+            "$ref": "#/$defs/Education"
+          },
+          "title": "Education",
+          "type": "array"
+        },
+        "certifications": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Certifications",
+          "type": "array"
+        },
+        "languages": {
+          "description": "Spoken languages, if listed",
+          "items": {
+            "type": "string"
+          },
+          "title": "Languages",
+          "type": "array"
+        }
+      },
+      "required": [
+        "full_name",
+        "email",
+        "phone",
+        "location",
+        "linkedin_url",
+        "headline",
+        "summary",
+        "total_experience_years",
+        "current_title",
+        "current_company",
+        "skills",
+        "work_experience",
+        "education",
+        "certifications",
+        "languages"
+      ],
+      "title": "ResumeExtractionLLM",
+      "type": "object"
+    },
+    "WorkExperience": {
+      "additionalProperties": false,
+      "properties": {
+        "title": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "Job title exactly as written",
+          "title": "Title"
+        },
+        "company": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "Employer name",
+          "title": "Company"
+        },
+        "location": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "Location of the role, if stated",
+          "title": "Location"
+        },
+        "start_date": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "YYYY-MM or YYYY; null if not stated",
+          "title": "Start Date"
+        },
+        "end_date": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "YYYY-MM or YYYY; null if current or not stated",
+          "title": "End Date"
+        },
+        "is_current": {
+          "description": "true only if the resume says present/current/till date",
+          "title": "Is Current",
+          "type": "boolean"
+        },
+        "highlights": {
+          "description": "Key responsibilities/achievements, concise, max 6",
+          "items": {
+            "type": "string"
+          },
+          "title": "Highlights",
+          "type": "array"
+        }
+      },
+      "required": [
+        "title",
+        "company",
+        "location",
+        "start_date",
+        "end_date",
+        "is_current",
+        "highlights"
+      ],
+      "title": "WorkExperience",
+      "type": "object"
+    }
+  },
+  "additionalProperties": false,
+  "properties": {
+    "schema_version": {
+      "default": "1.0",
+      "title": "Schema Version",
+      "type": "string"
+    },
+    "candidate_id": {
+      "title": "Candidate Id",
+      "type": "string"
+    },
+    "stage": {
+      "const": "stage1_extraction",
+      "default": "stage1_extraction",
+      "title": "Stage",
+      "type": "string"
+    },
+    "run_id": {
+      "title": "Run Id",
+      "type": "string"
+    },
+    "created_at": {
+      "title": "Created At",
+      "type": "string"
+    },
+    "llm": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/LLMInfo"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "source_file": {
+      "title": "Source File",
+      "type": "string"
+    },
+    "source_sha256": {
+      "title": "Source Sha256",
+      "type": "string"
+    },
+    "resume_char_count": {
+      "title": "Resume Char Count",
+      "type": "integer"
+    },
+    "truncated": {
+      "default": false,
+      "title": "Truncated",
+      "type": "boolean"
+    },
+    "extraction": {
+      "$ref": "#/$defs/ResumeExtractionLLM"
+    }
+  },
+  "required": [
+    "candidate_id",
+    "run_id",
+    "llm",
+    "source_file",
+    "source_sha256",
+    "resume_char_count",
+    "extraction"
+  ],
+  "title": "Stage1Record",
+  "type": "object"
+}

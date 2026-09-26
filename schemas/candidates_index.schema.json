@@ -1,0 +1,221 @@
+{
+  "$defs": {
+    "CandidateEntry": {
+      "additionalProperties": false,
+      "properties": {
+        "candidate_id": {
+          "title": "Candidate Id",
+          "type": "string"
+        },
+        "source_file": {
+          "title": "Source File",
+          "type": "string"
+        },
+        "source_sha256": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Source Sha256"
+        },
+        "ingested_at": {
+          "title": "Ingested At",
+          "type": "string"
+        },
+        "updated_at": {
+          "title": "Updated At",
+          "type": "string"
+        },
+        "display_name": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Display Name"
+        },
+        "current_stage": {
+          "default": "stage1_extraction",
+          "enum": [
+            "stage1_extraction",
+            "stage2_shortlisting",
+            "stage3_calling"
+          ],
+          "title": "Current Stage",
+          "type": "string"
+        },
+        "overall_status": {
+          "default": "active",
+          "enum": [
+            "active",
+            "rejected",
+            "failed",
+            "awaiting",
+            "completed"
+          ],
+          "title": "Overall Status",
+          "type": "string"
+        },
+        "stages": {
+          "additionalProperties": {
+            "$ref": "#/$defs/StageState"
+          },
+          "propertyNames": {
+            "enum": [
+              "stage1_extraction",
+              "stage2_shortlisting",
+              "stage3_calling"
+            ]
+          },
+          "title": "Stages",
+          "type": "object"
+        }
+      },
+      "required": [
+        "candidate_id",
+        "source_file",
+        "source_sha256",
+        "ingested_at",
+        "updated_at"
+      ],
+      "title": "CandidateEntry",
+      "type": "object"
+    },
+    "StageState": {
+      "additionalProperties": false,
+      "properties": {
+        "status": {
+          "default": "pending",
+          "enum": [
+            "pending",
+            "success",
+            "failed",
+            "skipped",
+            "awaiting"
+          ],
+          "title": "Status",
+          "type": "string"
+        },
+        "output_path": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Output Path"
+        },
+        "updated_at": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Updated At"
+        },
+        "run_id": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Run Id"
+        },
+        "error": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Error"
+        },
+        "note": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Note"
+        },
+        "decision": {
+          "anyOf": [
+            {
+              "enum": [
+                "shortlisted",
+                "rejected"
+              ],
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Decision"
+        },
+        "score": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Score"
+        }
+      },
+      "title": "StageState",
+      "type": "object"
+    }
+  },
+  "additionalProperties": false,
+  "properties": {
+    "schema_version": {
+      "default": "1.0",
+      "title": "Schema Version",
+      "type": "string"
+    },
+    "updated_at": {
+      "title": "Updated At",
+      "type": "string"
+    },
+    "candidates": {
+      "additionalProperties": {
+        "$ref": "#/$defs/CandidateEntry"
+      },
+      "title": "Candidates",
+      "type": "object"
+    }
+  },
+  "title": "CandidatesIndexDoc",
+  "type": "object"
+}

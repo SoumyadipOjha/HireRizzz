@@ -1,0 +1,32 @@
+[project]
+name = "recruiting-screening-pipeline"
+version = "0.1.0"
+description = "Resume screening pipeline: resume extraction -> shortlisting -> screening call (Stages 1-3)."
+readme = "README.md"
+requires-python = ">=3.11"
+dependencies = [
+    "google-genai>=1.0",
+    "pydantic>=2.7",
+    "python-docx>=1.1",
+    "python-dotenv>=1.0",
+    "pyyaml>=6.0",
+]
+
+[project.scripts]
+screening = "screening.cli:main"
+
+[dependency-groups]
+dev = [
+    "pytest>=8.0",
+]
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/screening"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["src"]

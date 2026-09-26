@@ -1,0 +1,53 @@
+# Pipeline settings. Paths are relative to the data directory
+# (default: <project>/data, override with --data-dir).
+
+paths:
+  input_resumes: input/resumes
+  candidates_index: candidates_index.json
+  stage1_output: stage1_extracted
+  stage2_output: stage2_shortlist
+  stage3_output: stage3_calls
+  stage3_transcripts: stage3_calls/transcripts
+  stage3_sessions: stage3_calls/sessions
+  stage3_invites: stage3_calls/invites.json
+  logs: logs
+
+files:
+  job_description: config/job_description.yaml       # relative to project root
+  screening_questions: config/screening_questions.yaml
+
+thresholds:
+  min_resume_chars: 200       # below this, Stage 1 fails (empty / scanned resume)
+  max_resume_chars: 60000     # longer text is truncated (WARNING logged)
+  shortlist_score: 70         # overall_score >= this => shortlisted
+  require_all_must_have: false  # true => any missing must-have skill => rejected
+
+scoring:
+  # Weights applied in code to the LLM's per-criterion scores (0-100). Must sum to 1.0.
+  weights:
+    must_have_skills: 0.40
+    experience: 0.30
+    nice_to_have_skills: 0.15
+    role_relevance: 0.15
+
+llm:
+  provider: gemini
+  model: gemini-3.8-flash
+  temperature: 0.0
+  timeout_seconds: 120
+  api_key_env: GEMINI_API_KEY
+
+stage3:
+  # In-house screening agent (browser voice / text). Links look like <public_base_url>/interview/<token>.
+  # Mic access needs a secure origin: localhost works; for other machines use an HTTPS URL (e.g. a tunnel).
+  public_base_url: http://127.0.0.1:8765
+  invite_ttl_days: 7
+  max_followups_per_question: 1   # agent may ask at most this many clarifying follow-ups per question
+  max_candidate_turns: 40         # hard stop for runaway conversations
+  max_turn_chars: 2000            # longer candidate messages are truncated
+  speech_lang: en-IN              # speech recognition + voice language (e.g. en-US, en-GB)
+  agent_temperature: 0.4          # a little variety in the spoken replies (parsing stays at llm.temperature)
+
+logging:
+  console_level: INFO
+  file_level: DEBUG

@@ -1,0 +1,185 @@
+{
+  "$defs": {
+    "CriterionResult": {
+      "additionalProperties": false,
+      "properties": {
+        "criterion": {
+          "enum": [
+            "must_have_skills",
+            "experience",
+            "nice_to_have_skills",
+            "role_relevance"
+          ],
+          "title": "Criterion",
+          "type": "string"
+        },
+        "score": {
+          "title": "Score",
+          "type": "integer"
+        },
+        "weight": {
+          "title": "Weight",
+          "type": "number"
+        },
+        "weighted_score": {
+          "title": "Weighted Score",
+          "type": "number"
+        },
+        "evidence": {
+          "title": "Evidence",
+          "type": "string"
+        }
+      },
+      "required": [
+        "criterion",
+        "score",
+        "weight",
+        "weighted_score",
+        "evidence"
+      ],
+      "title": "CriterionResult",
+      "type": "object"
+    },
+    "LLMInfo": {
+      "additionalProperties": false,
+      "properties": {
+        "provider": {
+          "title": "Provider",
+          "type": "string"
+        },
+        "model": {
+          "title": "Model",
+          "type": "string"
+        },
+        "prompt_file": {
+          "title": "Prompt File",
+          "type": "string"
+        }
+      },
+      "required": [
+        "provider",
+        "model",
+        "prompt_file"
+      ],
+      "title": "LLMInfo",
+      "type": "object"
+    }
+  },
+  "additionalProperties": false,
+  "properties": {
+    "schema_version": {
+      "default": "1.0",
+      "title": "Schema Version",
+      "type": "string"
+    },
+    "candidate_id": {
+      "title": "Candidate Id",
+      "type": "string"
+    },
+    "stage": {
+      "const": "stage2_shortlisting",
+      "default": "stage2_shortlisting",
+      "title": "Stage",
+      "type": "string"
+    },
+    "run_id": {
+      "title": "Run Id",
+      "type": "string"
+    },
+    "created_at": {
+      "title": "Created At",
+      "type": "string"
+    },
+    "llm": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/LLMInfo"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "job_id": {
+      "title": "Job Id",
+      "type": "string"
+    },
+    "criteria": {
+      "items": {
+        "$ref": "#/$defs/CriterionResult"
+      },
+      "title": "Criteria",
+      "type": "array"
+    },
+    "matched_must_have_skills": {
+      "items": {
+        "type": "string"
+      },
+      "title": "Matched Must Have Skills",
+      "type": "array"
+    },
+    "missing_must_have_skills": {
+      "items": {
+        "type": "string"
+      },
+      "title": "Missing Must Have Skills",
+      "type": "array"
+    },
+    "matched_nice_to_have_skills": {
+      "items": {
+        "type": "string"
+      },
+      "title": "Matched Nice To Have Skills",
+      "type": "array"
+    },
+    "overall_score": {
+      "title": "Overall Score",
+      "type": "number"
+    },
+    "threshold": {
+      "title": "Threshold",
+      "type": "number"
+    },
+    "require_all_must_have": {
+      "title": "Require All Must Have",
+      "type": "boolean"
+    },
+    "decision": {
+      "enum": [
+        "shortlisted",
+        "rejected"
+      ],
+      "title": "Decision",
+      "type": "string"
+    },
+    "decision_reasons": {
+      "items": {
+        "type": "string"
+      },
+      "title": "Decision Reasons",
+      "type": "array"
+    },
+    "rationale": {
+      "title": "Rationale",
+      "type": "string"
+    }
+  },
+  "required": [
+    "candidate_id",
+    "run_id",
+    "llm",
+    "job_id",
+    "criteria",
+    "matched_must_have_skills",
+    "missing_must_have_skills",
+    "matched_nice_to_have_skills",
+    "overall_score",
+    "threshold",
+    "require_all_must_have",
+    "decision",
+    "decision_reasons",
+    "rationale"
+  ],
+  "title": "Stage2Record",
+  "type": "object"
+}

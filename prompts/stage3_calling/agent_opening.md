@@ -1,0 +1,1 @@
+Hi {{candidate_first_name}}, I'm an AI recruiting assistant calling on behalf of {{company_name}}'s recruiting team about the {{job_title}} role. This conversation is recorded and transcribed for the hiring team. Is now a good time for a quick five-minute screening chat?

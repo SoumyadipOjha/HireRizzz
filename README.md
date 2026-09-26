@@ -1,0 +1,107 @@
+# Recruiting Screening Pipeline (Stages 1–3)
+
+`.docx` resumes → **Stage 1** structured profile → **Stage 2** shortlist
+decision → **Stage 3** screening call + parsed transcript. Every candidate
+gets structured JSON at each stage, joined by one UUID4 `candidate_id`.
+Stage 4 (HR filter) is out of scope.
+
+| Stage | Status |
+|---|---|
+| 0 Ingest | ✅ built |
+| 1 Resume extraction (Gemini) | ✅ built — needs your `GEMINI_API_KEY` for a live run |
+| 2 Shortlisting (Gemini + deterministic scoring) | ✅ built — needs `GEMINI_API_KEY` |
+| 3 Screening call (in-house agent: browser voice or text) | ✅ built — needs `GEMINI_API_KEY` |
+
+Design docs: [docs/intent.md](docs/intent.md) · [docs/spec.md](docs/spec.md) (folder layout, JSON schemas, thresholds, failure policy) · [docs/build_instructions.md](docs/build_instructions.md)
+
+## Setup (Windows)
+
+Needs [uv](https://docs.astral.sh/uv/) (installed at `%USERPROFILE%\.local\bin\uv.exe`).
+
+```bash
+uv sync
+copy .env.example .env      # then put your free key from https://aistudio.google.com/apikey in GEMINI_API_KEY
+uv run screening check-llm  # verifies the key and that llm.model exists
+```
+
+## Run
+
+```bash
+# put the .docx resumes in data/input/resumes/, then:
+uv run screening run            # ingest + stages 1-3
+uv run screening status         # table view of candidates_index.json
+```
+
+Individual stages: `ingest`, `extract`, `shortlist`, `call` (each supports
+`--force` and `--only <candidate_id>`). Use `--data-dir <folder>` to run
+against a separate data folder (e.g. `demo_runs/x`).
+
+Try the pipeline on the synthetic samples without touching `data/`:
+
+```bash
+uv run screening --data-dir demo_runs/samples ingest --input-dir samples/resumes
+uv run screening --data-dir demo_runs/samples run --input-dir samples/resumes
+uv run screening --data-dir demo_runs/samples simulate-call <candidate_id>
+```
+
+## Dashboard
+
+Read-only web view of `data/` (candidates, scores, criterion breakdown, call
+results, interview links, failures, log). Refreshes every 5 s; localhost only.
+
+```bash
+uv run screening serve                         # real data -> http://127.0.0.1:8765
+uv run python scripts/make_demo_data.py        # build DEMO data in demo_runs/demo (fake LLM, clearly labelled)
+uv run screening --data-dir demo_runs/demo serve
+```
+
+## Where things are
+
+| What | Where |
+|---|---|
+| Thresholds, weights, model | `config/settings.yaml` |
+| Job the candidates are scored against | `config/job_description.yaml` |
+| Questions the call agent asks | `config/screening_questions.yaml` |
+| Every LLM prompt | `prompts/<stage>/*.md` |
+| Outputs | `data/stage1_extracted/`, `data/stage2_shortlist/`, `data/stage3_calls/` — `<candidate_id>.json` |
+| Master index | `data/candidates_index.json` |
+| Logs / failures | `data/logs/pipeline.log`, `data/logs/failures.jsonl` |
+| JSON Schemas | `schemas/*.schema.json` (`uv run screening export-schemas`) |
+
+## Failure policy
+
+Log-and-skip, no retries: a failing candidate gets an ERROR log line, a
+`failures.jsonl` line and `status: failed` + error in the index; the batch
+continues. Re-running picks up only `pending`/`failed` work. Exit code is 1
+if any candidate failed, 2 for configuration errors (nothing processed).
+
+## Stage 3: the screening agent
+
+```bash
+uv run screening call                            # issues a private link per shortlisted candidate (prints them)
+uv run screening serve                           # dashboard + interview pages on http://127.0.0.1:8765
+uv run screening simulate-call <candidate_id>    # talk to the agent in the terminal (testing)
+```
+
+* The candidate opens their link, reads what to expect (AI assistant,
+  recorded, ~5 minutes) and chooses **voice** (Chrome/Edge/Safari) or **typing**.
+* Code runs the structure (consent → each question in order → close);
+  Gemini classifies each reply and writes the next line. Follow-ups and turn
+  counts are capped in code, so the conversation can't go off the rails.
+* When it ends, the transcript is parsed into `stage3_calls/<candidate_id>.json`.
+  Completed → link used. Opted out → link revoked. Rescheduled/abandoned → the
+  same link works again.
+* **Other machines:** microphones only work on `localhost` or HTTPS. To let
+  real candidates in, put the server behind an HTTPS URL (e.g. a tunnel or a
+  hosted reverse proxy), set `stage3.public_base_url` to it, and run
+  `screening serve --host 0.0.0.0`. The dashboard still only answers on the
+  machine itself.
+
+## Tests
+
+```bash
+uv run pytest
+```
+Offline (a fake LLM stands in for Gemini): docx parsing edge cases, config
+validation, schema conversion, scoring maths, end-to-end Stages 0–3 incl.
+failure paths.

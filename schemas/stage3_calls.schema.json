@@ -1,0 +1,392 @@
+{
+  "$defs": {
+    "CallInfo": {
+      "additionalProperties": false,
+      "properties": {
+        "agent": {
+          "default": "in_house_screening_agent",
+          "title": "Agent",
+          "type": "string"
+        },
+        "channel": {
+          "enum": [
+            "browser_voice",
+            "browser_text",
+            "terminal_simulation",
+            "local_transcript_file"
+          ],
+          "title": "Channel",
+          "type": "string"
+        },
+        "session_id": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Session Id"
+        },
+        "status": {
+          "enum": [
+            "completed",
+            "rescheduled",
+            "opted_out",
+            "abandoned",
+            "failed"
+          ],
+          "title": "Status",
+          "type": "string"
+        },
+        "started_at": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Started At"
+        },
+        "ended_at": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Ended At"
+        },
+        "duration_seconds": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Duration Seconds"
+        },
+        "agent_turns": {
+          "default": 0,
+          "title": "Agent Turns",
+          "type": "integer"
+        },
+        "candidate_turns": {
+          "default": 0,
+          "title": "Candidate Turns",
+          "type": "integer"
+        },
+        "questions_asked": {
+          "default": 0,
+          "title": "Questions Asked",
+          "type": "integer"
+        },
+        "reschedule_note": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Reschedule Note"
+        },
+        "agent_llm": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Agent Llm"
+        }
+      },
+      "required": [
+        "channel",
+        "session_id",
+        "status"
+      ],
+      "title": "CallInfo",
+      "type": "object"
+    },
+    "LLMInfo": {
+      "additionalProperties": false,
+      "properties": {
+        "provider": {
+          "title": "Provider",
+          "type": "string"
+        },
+        "model": {
+          "title": "Model",
+          "type": "string"
+        },
+        "prompt_file": {
+          "title": "Prompt File",
+          "type": "string"
+        }
+      },
+      "required": [
+        "provider",
+        "model",
+        "prompt_file"
+      ],
+      "title": "LLMInfo",
+      "type": "object"
+    },
+    "ScreeningAnswerLLM": {
+      "additionalProperties": false,
+      "properties": {
+        "question_id": {
+          "description": "The id of the question from the provided list",
+          "title": "Question Id",
+          "type": "string"
+        },
+        "question": {
+          "title": "Question",
+          "type": "string"
+        },
+        "answered": {
+          "description": "true only if the candidate actually answered it",
+          "title": "Answered",
+          "type": "boolean"
+        },
+        "answer_summary": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "What the candidate said, concise; null if not answered",
+          "title": "Answer Summary"
+        }
+      },
+      "required": [
+        "question_id",
+        "question",
+        "answered",
+        "answer_summary"
+      ],
+      "title": "ScreeningAnswerLLM",
+      "type": "object"
+    },
+    "TranscriptParseLLM": {
+      "additionalProperties": false,
+      "properties": {
+        "interested_in_role": {
+          "anyOf": [
+            {
+              "type": "boolean"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Interested In Role"
+        },
+        "current_location": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Current Location"
+        },
+        "willing_to_relocate": {
+          "anyOf": [
+            {
+              "type": "boolean"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Willing To Relocate"
+        },
+        "notice_period_days": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "Notice period converted to days (1 month = 30); 0 if immediately available; null if not stated",
+          "title": "Notice Period Days"
+        },
+        "current_ctc": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "Current compensation as stated, with units",
+          "title": "Current Ctc"
+        },
+        "expected_ctc": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "Expected compensation as stated, with units",
+          "title": "Expected Ctc"
+        },
+        "available_for_interview": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "Interview availability as stated",
+          "title": "Available For Interview"
+        },
+        "answers": {
+          "description": "One entry per question in the provided list, same order",
+          "items": {
+            "$ref": "#/$defs/ScreeningAnswerLLM"
+          },
+          "title": "Answers",
+          "type": "array"
+        },
+        "candidate_questions": {
+          "description": "Questions the candidate asked the agent",
+          "items": {
+            "type": "string"
+          },
+          "title": "Candidate Questions",
+          "type": "array"
+        },
+        "red_flags": {
+          "description": "Concrete concerns (inconsistency with resume, hostility, etc.); empty if none",
+          "items": {
+            "type": "string"
+          },
+          "title": "Red Flags",
+          "type": "array"
+        },
+        "sentiment": {
+          "enum": [
+            "positive",
+            "neutral",
+            "negative"
+          ],
+          "title": "Sentiment",
+          "type": "string"
+        },
+        "overall_summary": {
+          "description": "3-4 sentence summary of the call",
+          "title": "Overall Summary",
+          "type": "string"
+        }
+      },
+      "required": [
+        "interested_in_role",
+        "current_location",
+        "willing_to_relocate",
+        "notice_period_days",
+        "current_ctc",
+        "expected_ctc",
+        "available_for_interview",
+        "answers",
+        "candidate_questions",
+        "red_flags",
+        "sentiment",
+        "overall_summary"
+      ],
+      "title": "TranscriptParseLLM",
+      "type": "object"
+    }
+  },
+  "additionalProperties": false,
+  "properties": {
+    "schema_version": {
+      "default": "1.0",
+      "title": "Schema Version",
+      "type": "string"
+    },
+    "candidate_id": {
+      "title": "Candidate Id",
+      "type": "string"
+    },
+    "stage": {
+      "const": "stage3_calling",
+      "default": "stage3_calling",
+      "title": "Stage",
+      "type": "string"
+    },
+    "run_id": {
+      "title": "Run Id",
+      "type": "string"
+    },
+    "created_at": {
+      "title": "Created At",
+      "type": "string"
+    },
+    "llm": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/LLMInfo"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "job_id": {
+      "title": "Job Id",
+      "type": "string"
+    },
+    "call": {
+      "$ref": "#/$defs/CallInfo"
+    },
+    "transcript_path": {
+      "title": "Transcript Path",
+      "type": "string"
+    },
+    "screening": {
+      "$ref": "#/$defs/TranscriptParseLLM"
+    }
+  },
+  "required": [
+    "candidate_id",
+    "run_id",
+    "llm",
+    "job_id",
+    "call",
+    "transcript_path",
+    "screening"
+  ],
+  "title": "Stage3Record",
+  "type": "object"
+}

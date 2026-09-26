@@ -1,0 +1,17 @@
+# Questions the Stage 3 calling agent asks every shortlisted candidate.
+# `id` values are stable keys used in stage3_calls/<candidate_id>.json -> screening.answers[].question_id
+questions:
+  - id: interest
+    question: Are you currently open to new opportunities, and are you interested in this role?
+  - id: current_location
+    question: Where are you currently based?
+  - id: relocation
+    question: Are you willing to relocate or work hybrid from our office location?
+  - id: notice_period
+    question: What is your notice period?
+  - id: current_ctc
+    question: What is your current compensation?
+  - id: expected_ctc
+    question: What is your expected compensation?
+  - id: interview_availability
+    question: When are you available for a technical interview?

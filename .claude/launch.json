@@ -1,0 +1,17 @@
+{
+  "version": "0.0.1",
+  "configurations": [
+    {
+      "name": "dashboard-demo",
+      "runtimeExecutable": "C:\\Users\\Int202522\\.local\\bin\\uv.exe",
+      "runtimeArgs": ["run", "screening", "--data-dir", "demo_runs/demo", "dashboard", "--no-browser"],
+      "port": 8765
+    },
+    {
+      "name": "dashboard",
+      "runtimeExecutable": "C:\\Users\\Int202522\\.local\\bin\\uv.exe",
+      "runtimeArgs": ["run", "screening", "dashboard", "--no-browser", "--port", "8766"],
+      "port": 8766
+    }
+  ]
+}

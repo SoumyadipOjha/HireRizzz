@@ -1,0 +1,23 @@
+Agent: Hi, may I speak with Aarav Sharma?
+Candidate: Yes, speaking.
+Agent: Hi Aarav, I'm an AI assistant calling on behalf of Example Corp's recruiting team about the Python Backend Engineer role. This call is recorded and transcribed for the hiring team. Is now a good time for a five-minute screening call?
+Candidate: Sure, go ahead.
+Agent: Great. Are you currently open to new opportunities, and are you interested in this role?
+Candidate: Yes, I'm actively looking, and the role sounds like a good fit. I've been doing FastAPI work for the last three years.
+Agent: Where are you currently based?
+Candidate: Hyderabad, Gachibowli.
+Agent: Are you willing to relocate or work hybrid from our office location?
+Candidate: Hybrid is fine, three days a week in office works for me.
+Agent: What is your notice period?
+Candidate: It's two months, but it might be negotiable down to about forty five days.
+Agent: What is your current compensation?
+Candidate: Around twenty two lakhs per annum.
+Agent: And what is your expected compensation?
+Candidate: I'm looking for something around thirty LPA.
+Agent: When are you available for a technical interview?
+Candidate: Any weekday after 6 pm, or Saturday mornings.
+Candidate: Quick question — is the team using AWS or GCP?
+Agent: I don't have those details, but the recruiter will follow up with you.
+Candidate: Okay, no problem.
+Agent: Thank you, Aarav. The recruiting team will be in touch soon.
+Candidate: Thanks, bye.

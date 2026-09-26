@@ -1,0 +1,303 @@
+"""Command-line entry point: `screening <command>` (or `python -m screening`)."""
+
+from __future__ import annotations
+
+import argparse
+import json
+import sys
+from pathlib import Path
+
+from .config import ConfigError, load_config
+from .context import RunContext
+from .index import CandidateIndexError, write_json_atomic
+from .paths import SCHEMAS_DIR
+from .schemas import EXPORTED_SCHEMAS, STAGES
+
+
+def _ctx(args) -> RunContext:
+    return RunContext.create(load_config(data_dir=args.data_dir))
+
+
+def cmd_ingest(args) -> int:
+    from .stage0_ingest import ingest
+
+    ingest(_ctx(args), input_dir=args.input_dir)
+    return 0
+
+
+def _llm(ctx: RunContext):
+    from .llm import make_client
+
+    client = make_client(ctx.config)
+    ctx.logger.info("LLM: %s / %s", client.provider, client.model)
+    return client
+
+
+def _only(args) -> set[str] | None:
+    return set(args.only) if getattr(args, "only", None) else None
+
+
+def _exit_code(*summaries) -> int:
+    # 0 = batch ran (per-candidate failures are logged, not fatal); 1 = some candidate failed.
+    return 1 if any(s.failed for s in summaries) else 0
+
+
+def cmd_extract(args) -> int:
+    from .stage1_extract import run_stage1
+
+    ctx = _ctx(args)
+    return _exit_code(run_stage1(ctx, _llm(ctx), force=args.force, only=_only(args)))
+
+
+def cmd_shortlist(args) -> int:
+    from .stage2_shortlist import run_stage2
+
+    ctx = _ctx(args)
+    ctx.config.job  # validate JD before touching candidates
+    return _exit_code(run_stage2(ctx, _llm(ctx), force=args.force, only=_only(args)))
+
+
+def _print_invites(ctx: RunContext, cids: list[str]) -> None:
+    if not cids:
+        return
+    print()
+    print("Interview links (share each one only with that candidate):", flush=True)
+    for cid in cids:
+        e = ctx.index.get(cid)
+        url = (e.stages["stage3_calling"].note or "").rsplit(": ", 1)[-1]
+        print(f"  {e.display_name or cid:24} {url}", flush=True)
+    print("Start the server so the links work:  uv run screening serve", flush=True)
+    print()
+
+
+def cmd_call(args) -> int:
+    from .stage3_call import run_stage3
+
+    ctx = _ctx(args)
+    ctx.config.job, ctx.config.questions  # validate config before touching candidates
+    s3 = run_stage3(ctx, force=args.force, only=_only(args))
+    _print_invites(ctx, s3.awaiting)
+    return _exit_code(s3)
+
+
+def cmd_run(args) -> int:
+    from .stage0_ingest import ingest
+    from .stage1_extract import run_stage1
+    from .stage2_shortlist import run_stage2
+    from .stage3_call import run_stage3
+
+    ctx = _ctx(args)
+    ctx.config.job, ctx.config.questions  # validate all config up front
+    llm = _llm(ctx)
+    ctx.logger.info("=== pipeline run %s ===", ctx.run_id)
+    ingest(ctx, input_dir=args.input_dir)
+    s1 = run_stage1(ctx, llm, force=args.force)
+    s2 = run_stage2(ctx, llm, force=args.force)
+    s3 = run_stage3(ctx, force=args.force)
+    ctx.logger.info("=== run complete ===")
+    for s in (s1, s2, s3):
+        ctx.logger.info("  %s", s.line())
+    _print_invites(ctx, s3.awaiting)
+    return _exit_code(s1, s2, s3)
+
+
+def cmd_simulate_call(args) -> int:
+    """Talk to the agent in the terminal (or replay a script of candidate lines)."""
+    from .agent.dialogue import ScreeningDialogue
+    from .stage2_shortlist import load_stage1
+    from .stage3_call import finalize_dialogue
+
+    ctx = _ctx(args)
+    ctx.config.job, ctx.config.questions
+    entry = ctx.index.get(args.candidate_id)
+    if entry.stages["stage1_extraction"].status != "success":
+        print("ERROR: this candidate has no Stage 1 profile yet", file=sys.stderr)
+        return 2
+    name = load_stage1(entry).extraction.full_name
+    llm = _llm(ctx)
+    script = None
+    if args.script:
+        script = [l.strip() for l in Path(args.script).read_text(encoding="utf-8").splitlines() if l.strip()]
+    d = ScreeningDialogue(config=ctx.config, llm=llm, candidate_id=entry.candidate_id, candidate_name=name,
+                          channel="terminal_simulation", logger=ctx.logger)
+    print(f"--- simulated screening call with {name} (type 'quit' or press Ctrl+C to hang up) ---")
+    print()
+    print(f"Agent: {d.start()}", flush=True)
+    print()
+    try:
+        while not d.ended:
+            if script is not None:
+                if not script:
+                    d.hang_up()
+                    break
+                line = script.pop(0)
+                print(f"You:   {line}")
+            else:
+                line = input("You:   ")
+                if line.strip().lower() in ("quit", "exit"):
+                    d.hang_up()
+                    break
+            print(f"Agent: {d.reply(line)}", flush=True)
+            print()
+    except (KeyboardInterrupt, EOFError):
+        d.hang_up()
+    print(f"--- call ended: {d.state.outcome} ---")
+    out = finalize_dialogue(ctx, llm, d)
+    if out:
+        print(f"wrote {ctx.config.data.rel(out)}")
+    return 0 if out or d.state.outcome != "completed" else 1
+
+
+def cmd_parse_transcript(args) -> int:
+    from .stage3_call import STAGE, parse_local_transcript
+
+    ctx = _ctx(args)
+    ctx.config.job, ctx.config.questions
+    entry = ctx.index.get(args.candidate_id)
+    try:
+        out = parse_local_transcript(ctx, _llm(ctx), args.candidate_id, args.transcript_file)
+    except Exception as e:
+        ctx.fail(STAGE, entry, e)
+        return 1
+    ctx.logger.info("%s: candidate_id=%s wrote %s", STAGE, args.candidate_id, ctx.config.data.rel(out))
+    return 0
+
+
+def cmd_check_llm(args) -> int:
+    from .llm import make_client
+    from .llm.base import LLMError
+
+    cfg = load_config(data_dir=args.data_dir)
+    client = make_client(cfg)
+    print(f"provider={client.provider} configured model={client.model}")
+    try:
+        models = client.list_models()
+    except LLMError as e:
+        print(f"ERROR: {e}", file=sys.stderr)
+        return 2
+    ok = client.model in models
+    print(f"API key works. {len(models)} text models available.")
+    print(f"Configured model '{client.model}' is {'AVAILABLE' if ok else 'NOT AVAILABLE — change llm.model in config/settings.yaml'}")
+    if not ok or args.verbose:
+        print("Available:", ", ".join(m for m in models if "gemini" in m))
+    return 0 if ok else 2
+
+
+def cmd_dashboard(args) -> int:
+    from .dashboard import serve
+
+    serve(load_config(data_dir=args.data_dir), port=args.port, open_browser=not args.no_browser, host=args.host)
+    return 0
+
+
+def cmd_status(args) -> int:
+    cfg = load_config(data_dir=args.data_dir)
+    from .index import CandidateIndex
+
+    index = CandidateIndex(cfg.data.candidates_index)
+    entries = index.all()
+    if args.json:
+        print(json.dumps(index.doc.model_dump(mode="json"), indent=2, ensure_ascii=False))
+        return 0
+    if not entries:
+        print(f"No candidates in {cfg.data.candidates_index}")
+        return 0
+    short = {"stage1_extraction": "S1", "stage2_shortlisting": "S2", "stage3_calling": "S3"}
+    print(f"{'candidate_id':36}  {'name':22} {'overall':9} " + " ".join(f"{short[s]:9}" for s in STAGES) + " file")
+    for e in entries:
+        stage_cols = []
+        for s in STAGES:
+            st = e.stages[s]
+            label = st.status
+            if s == "stage2_shortlisting" and st.decision:
+                label = f"{st.decision[:5]}:{st.score:g}" if st.score is not None else st.decision
+            stage_cols.append(f"{label:9}")
+        name = (e.display_name or "-")[:22]
+        print(f"{e.candidate_id:36}  {name:22} {e.overall_status:9} " + " ".join(stage_cols) + f" {Path(e.source_file).name}")
+        for s in STAGES:
+            st = e.stages[s]
+            if st.error or st.note:
+                print(f"{'':38}{short[s]}: {st.error or st.note}")
+    return 0
+
+
+def cmd_export_schemas(args) -> int:
+    SCHEMAS_DIR.mkdir(exist_ok=True)
+    for name, model in EXPORTED_SCHEMAS.items():
+        path = SCHEMAS_DIR / f"{name}.schema.json"
+        write_json_atomic(path, model.model_json_schema())
+        print(f"wrote {path.relative_to(SCHEMAS_DIR.parent).as_posix()}")
+    return 0
+
+
+def build_parser() -> argparse.ArgumentParser:
+    p = argparse.ArgumentParser(prog="screening", description="Recruiting screening pipeline (Stages 1-3).")
+    p.add_argument("--data-dir", type=Path, default=None, help="Data directory (default: <project>/data)")
+    sub = p.add_subparsers(dest="command", required=True)
+
+    s = sub.add_parser("ingest", help="Stage 0: register resumes and assign candidate_ids")
+    s.add_argument("--input-dir", type=Path, default=None, help="Folder of .docx resumes (default: data/input/resumes)")
+    s.set_defaults(func=cmd_ingest)
+
+    def stage_cmd(name, help_, func):
+        s = sub.add_parser(name, help=help_)
+        s.add_argument("--force", action="store_true", help="Re-run candidates that already succeeded")
+        s.add_argument("--only", action="append", metavar="CANDIDATE_ID", help="Limit to these candidate_ids")
+        s.set_defaults(func=func)
+
+    stage_cmd("extract", "Stage 1: extract structured profiles from resumes (LLM)", cmd_extract)
+    stage_cmd("shortlist", "Stage 2: score profiles against the job and decide", cmd_shortlist)
+    stage_cmd("call", "Stage 3: issue private interview links to shortlisted candidates", cmd_call)
+
+    s = sub.add_parser("run", help="Ingest + Stages 1-3 in order")
+    s.add_argument("--input-dir", type=Path, default=None)
+    s.add_argument("--force", action="store_true")
+    s.set_defaults(func=cmd_run)
+
+    s = sub.add_parser("simulate-call", help="Stage 3: talk to the screening agent in the terminal")
+    s.add_argument("candidate_id")
+    s.add_argument("--script", type=Path, help="Text file of candidate replies, one per line (non-interactive)")
+    s.set_defaults(func=cmd_simulate_call)
+
+    s = sub.add_parser("parse-transcript", help="Stage 3 transcript parser on a local .txt (call held elsewhere)")
+    s.add_argument("candidate_id")
+    s.add_argument("transcript_file", type=Path)
+    s.set_defaults(func=cmd_parse_transcript)
+
+    s = sub.add_parser("check-llm", help="Verify the API key and that the configured model exists")
+    s.add_argument("-v", "--verbose", action="store_true")
+    s.set_defaults(func=cmd_check_llm)
+
+    for name in ("serve", "dashboard"):
+        s = sub.add_parser(name, help="Start the web server: HR dashboard + candidate interview pages"
+                           if name == "serve" else "Alias of `serve`")
+        s.add_argument("--port", type=int, default=8765)
+        s.add_argument("--host", default="127.0.0.1",
+                       help="Interface to bind (default 127.0.0.1). The dashboard only ever answers loopback clients.")
+        s.add_argument("--no-browser", action="store_true", help="Don't open a browser window")
+        s.set_defaults(func=cmd_dashboard)
+
+    s = sub.add_parser("status", help="Show candidates_index.json as a table")
+    s.add_argument("--json", action="store_true", help="Print the raw index JSON")
+    s.set_defaults(func=cmd_status)
+
+    s = sub.add_parser("export-schemas", help="Write JSON Schemas for every output file to schemas/")
+    s.set_defaults(func=cmd_export_schemas)
+    return p
+
+
+def main(argv: list[str] | None = None) -> int:
+    # Windows consoles default to a legacy code page; resumes contain non-ASCII names.
+    for stream in (sys.stdout, sys.stderr):
+        if hasattr(stream, "reconfigure"):
+            stream.reconfigure(encoding="utf-8", errors="replace")
+    args = build_parser().parse_args(argv)
+    try:
+        return args.func(args)
+    except (ConfigError, CandidateIndexError, FileNotFoundError, KeyError) as e:
+        print(f"ERROR: {e}", file=sys.stderr)
+        return 2
+
+
+if __name__ == "__main__":
+    sys.exit(main())

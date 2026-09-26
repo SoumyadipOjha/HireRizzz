@@ -1,0 +1,232 @@
+"""Stage 3 — screening call with the in-house agent.
+
+`run_stage3` issues a private interview link to every shortlisted candidate
+(status `awaiting`). The candidate talks to the agent in the browser (voice
+or text, see agent/ and the dashboard server). When the conversation ends,
+`finalize_dialogue` saves the transcript, parses it with the LLM and writes
+data/stage3_calls/<candidate_id>.json — the same record as before.
+"""
+
+from __future__ import annotations
+
+from datetime import datetime
+from pathlib import Path
+
+from .agent.dialogue import ScreeningDialogue
+from .agent.invites import InviteStore
+from .config import AppConfig
+from .context import RunContext, StageSummary
+from .index import write_json_atomic
+from .llm import LLMClient
+from .paths import resolve_stored
+from .prompts import load_prompt
+from .schemas import CallInfo, LLMInfo, ScreeningAnswerLLM, Stage2Record, Stage3Record, TranscriptParseLLM
+from .stage2_shortlist import JoinKeyMismatchError, load_stage1
+
+STAGE = "stage3_calling"
+UPSTREAM = "stage2_shortlisting"
+PROMPT_DIR = "stage3_calling"
+
+
+def interview_url(config: AppConfig, token: str) -> str:
+    return f"{config.settings.stage3.public_base_url}/interview/{token}"
+
+
+def _questions_block(config: AppConfig) -> str:
+    return "\n".join(f"{i}. [{q.id}] {q.question}" for i, q in enumerate(config.questions.questions, 1))
+
+
+def _load_stage2(entry) -> Stage2Record:
+    st = entry.stages[UPSTREAM]
+    record = Stage2Record.model_validate_json(resolve_stored(st.output_path).read_text(encoding="utf-8"))
+    if record.candidate_id != entry.candidate_id:
+        raise JoinKeyMismatchError(f"{st.output_path} has candidate_id {record.candidate_id}")
+    return record
+
+
+# ---------------------------------------------------------------------------
+# Invites
+# ---------------------------------------------------------------------------
+
+def run_stage3(ctx: RunContext, *, force: bool = False, only: set[str] | None = None) -> StageSummary:
+    """Give every shortlisted candidate an interview link. Re-running keeps
+    existing active links; --force issues fresh ones (old links stop working)."""
+    summary = StageSummary(STAGE)
+    log = ctx.logger
+    invites = InviteStore(ctx.config.data.stage3_invites)
+    ttl = ctx.config.settings.stage3.invite_ttl_days
+
+    for entry in ctx.index.all():
+        cid = entry.candidate_id
+        if only and cid not in only:
+            continue
+        st = entry.stages[STAGE]
+        if st.status == "success" and not force:
+            summary.already_done.append(cid)
+            continue
+        up = entry.stages[UPSTREAM]
+        if up.status != "success":
+            ctx.skip(STAGE, entry, f"{UPSTREAM} is '{up.status}', not 'success'")
+            summary.skipped.append(cid)
+            continue
+        if up.decision != "shortlisted":
+            ctx.skip(STAGE, entry, f"not shortlisted in {UPSTREAM} (decision={up.decision}, score={up.score})")
+            summary.skipped.append(cid)
+            continue
+        if st.status == "skipped" and st.output_path and not force:
+            summary.skipped.append(cid)  # opted out during an earlier call: never re-invite automatically
+            continue
+
+        try:
+            s2 = _load_stage2(entry)
+            if s2.decision != "shortlisted":
+                raise ValueError(f"index says shortlisted but {up.output_path} says {s2.decision}")
+            inv = None if force else invites.active_for(cid)
+            reused = inv is not None
+            if inv is None:
+                inv = invites.create(cid, ttl)
+            url = interview_url(ctx.config, inv.token)
+            expires = datetime.fromisoformat(inv.expires_at).strftime("%Y-%m-%d")
+            # keep a partial record from an earlier rescheduled/abandoned call visible
+            ctx.awaiting(STAGE, entry, f"interview link {'active' if reused else 'issued'} (expires {expires}): {url}",
+                         output_path=st.output_path)
+            summary.awaiting.append(cid)
+        except Exception as e:
+            ctx.fail(STAGE, entry, e)
+            summary.failed.append(cid)
+
+    log.info(summary.line())
+    return summary
+
+
+# ---------------------------------------------------------------------------
+# Transcript parsing + record
+# ---------------------------------------------------------------------------
+
+def reconcile_answers(answers: list[ScreeningAnswerLLM], config: AppConfig, warn) -> list[ScreeningAnswerLLM]:
+    """Exactly one answer per configured question, in config order."""
+    by_id: dict[str, ScreeningAnswerLLM] = {}
+    for a in answers:
+        if a.question_id in by_id:
+            warn(f"duplicate answer for question_id={a.question_id} (kept first)")
+            continue
+        by_id[a.question_id] = a
+    known = {q.id for q in config.questions.questions}
+    if unknown := set(by_id) - known:
+        warn(f"answers for unknown question ids ignored: {sorted(unknown)}")
+    out = []
+    for q in config.questions.questions:
+        a = by_id.get(q.id)
+        if a is None:
+            warn(f"no answer entry for question_id={q.id}; recorded as unanswered")
+            a = ScreeningAnswerLLM(question_id=q.id, question=q.question, answered=False, answer_summary=None)
+        out.append(a.model_copy(update={"question": q.question}))
+    return out
+
+
+def parse_transcript(ctx: RunContext, llm: LLMClient, *, candidate_id: str, candidate_name: str | None,
+                     transcript: str) -> tuple[TranscriptParseLLM, str]:
+    if not transcript.strip():
+        raise ValueError("transcript is empty")
+    system = load_prompt(PROMPT_DIR, "parse_system.md")
+    template = load_prompt(PROMPT_DIR, "parse_transcript.md")
+    prompt = template.render(candidate_name=candidate_name or "unknown", job_title=ctx.config.job.title,
+                             questions=_questions_block(ctx.config), transcript=transcript.strip())
+    parsed = llm.generate_json(system=system.text, prompt=prompt, schema=TranscriptParseLLM)
+    warn = lambda m: ctx.logger.warning("%s: candidate_id=%s %s", STAGE, candidate_id, m)  # noqa: E731
+    parsed = parsed.model_copy(update={"answers": reconcile_answers(parsed.answers, ctx.config, warn)})
+    return parsed, template.rel_path
+
+
+def save_transcript(ctx: RunContext, candidate_id: str, transcript: str) -> Path:
+    tpath = ctx.config.data.stage3_transcripts / f"{candidate_id}.txt"
+    tpath.parent.mkdir(parents=True, exist_ok=True)
+    tpath.write_text(transcript.strip() + "\n", encoding="utf-8")
+    return tpath
+
+
+def write_stage3_record(ctx: RunContext, llm: LLMClient, *, candidate_id: str, call: CallInfo, transcript_path: Path,
+                        parsed: TranscriptParseLLM, prompt_file: str) -> Path:
+    record = Stage3Record(
+        candidate_id=candidate_id, run_id=ctx.run_id,
+        llm=LLMInfo(provider=llm.provider, model=llm.model, prompt_file=prompt_file),
+        job_id=ctx.config.job.job_id, call=call, transcript_path=ctx.config.data.rel(transcript_path),
+        screening=parsed)
+    out = ctx.config.data.stage3_output / f"{candidate_id}.json"
+    write_json_atomic(out, record.model_dump(mode="json"))
+    return out
+
+
+def finalize_dialogue(ctx: RunContext, llm: LLMClient, dialogue: ScreeningDialogue,
+                      invites: InviteStore | None = None, token: str | None = None) -> Path | None:
+    """Called once when a conversation ends (any outcome). Log-and-skip on errors."""
+    st = dialogue.state
+    cid = st.candidate_id
+    entry = ctx.index.reload().get(cid)
+    outcome = st.outcome or "abandoned"
+    candidate_spoke = any(t.speaker == "candidate" for t in st.turns)
+
+    # Invite lifecycle: completed -> used, opted out -> revoked, anything else -> stays active for a retry.
+    # Calls held outside the web page (terminal simulation) close the candidate's active link too.
+    if token is None and outcome in ("completed", "opted_out"):
+        invites = invites or InviteStore(ctx.config.data.stage3_invites)
+        active = invites.active_for(cid)
+        token = active.token if active else None
+    if invites and token:
+        if outcome == "completed":
+            invites.update(token, status="used")
+        elif outcome == "opted_out":
+            invites.update(token, status="revoked")
+
+    if not candidate_spoke:
+        ctx.awaiting(STAGE, entry, f"last call {outcome} before the candidate said anything; link still active")
+        return None
+
+    try:
+        tpath = save_transcript(ctx, cid, dialogue.transcript_text())
+        call = CallInfo(channel=st.channel, session_id=st.session_id, status=outcome, started_at=st.started_at,
+                        ended_at=st.ended_at, duration_seconds=dialogue.duration_seconds(),
+                        agent_turns=sum(t.speaker == "agent" for t in st.turns),
+                        candidate_turns=sum(t.speaker == "candidate" for t in st.turns),
+                        questions_asked=st.questions_asked, reschedule_note=st.reschedule_note,
+                        agent_llm=f"{dialogue.llm.provider}/{dialogue.llm.model}")
+        parsed, prompt_file = parse_transcript(ctx, llm, candidate_id=cid, candidate_name=st.candidate_name,
+                                               transcript=dialogue.transcript_text())
+        out = write_stage3_record(ctx, llm, candidate_id=cid, call=call, transcript_path=tpath, parsed=parsed,
+                                  prompt_file=prompt_file)
+    except Exception as e:
+        ctx.fail(STAGE, entry, e)
+        return None
+
+    rel = ctx.config.data.rel(out)
+    if outcome == "completed":
+        ctx.index.set_stage(cid, STAGE, "success", run_id=ctx.run_id, output_path=rel,
+                            note=f"call completed ({st.channel})")
+        ctx.logger.info("%s: candidate_id=%s call completed, wrote %s", STAGE, cid, rel)
+    elif outcome == "opted_out":
+        ctx.index.set_stage(cid, STAGE, "skipped", run_id=ctx.run_id, output_path=rel,
+                            note="candidate opted out during the screening call; link revoked")
+        ctx.logger.info("%s: candidate_id=%s OPTED OUT", STAGE, cid)
+    else:
+        extra = f" ({st.reschedule_note})" if st.reschedule_note else ""
+        ctx.index.set_stage(cid, STAGE, "awaiting", run_id=ctx.run_id, output_path=rel,
+                            note=f"last call {outcome}{extra}; link still active for another attempt")
+    return out
+
+
+def parse_local_transcript(ctx: RunContext, llm: LLMClient, candidate_id: str, transcript_file: Path) -> Path:
+    """Run the transcript parser on a local .txt (e.g. a call held outside this system)."""
+    entry = ctx.index.get(candidate_id)
+    name = entry.display_name
+    if entry.stages["stage1_extraction"].status == "success":
+        name = load_stage1(entry).extraction.full_name
+    transcript = Path(transcript_file).read_text(encoding="utf-8")
+    parsed, prompt_file = parse_transcript(ctx, llm, candidate_id=candidate_id, candidate_name=name,
+                                           transcript=transcript)
+    tpath = save_transcript(ctx, candidate_id, transcript)
+    call = CallInfo(channel="local_transcript_file", session_id=None, status="completed")
+    out = write_stage3_record(ctx, llm, candidate_id=candidate_id, call=call, transcript_path=tpath, parsed=parsed,
+                              prompt_file=prompt_file)
+    ctx.index.set_stage(candidate_id, STAGE, "success", run_id=ctx.run_id, output_path=ctx.config.data.rel(out),
+                        note="parsed from a local transcript file")
+    return out

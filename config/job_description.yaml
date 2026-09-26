@@ -1,0 +1,29 @@
+# The role that Stage 2 scores candidates against. Replace with the real JD.
+job_id: python-backend-engineer-001
+title: Python Backend Engineer
+company_name: Example Corp   # used by the Stage 3 call agent when introducing itself
+location: Hyderabad, India (hybrid)
+min_experience_years: 3
+max_experience_years: 8
+must_have_skills:
+  - Python
+  - REST API development
+  - SQL
+  - Git
+nice_to_have_skills:
+  - FastAPI
+  - Docker
+  - AWS
+  - PostgreSQL
+  - CI/CD
+description: |
+  We are hiring a Python Backend Engineer to design, build and maintain
+  REST APIs and data services. You will own features end to end: API design,
+  database modelling, testing and deployment. You will work with product and
+  frontend teams in an agile setup.
+
+  Responsibilities:
+  - Build and maintain Python services exposing REST APIs
+  - Design relational schemas and write efficient SQL
+  - Write automated tests and participate in code review
+  - Deploy and monitor services in the cloud
