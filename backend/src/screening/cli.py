@@ -246,6 +246,20 @@ def cmd_rebuild_answers(args) -> int:
     return 0
 
 
+def cmd_check_credibility(args) -> int:
+    """Run the resume credibility checks for every candidate (e.g. ones screened before they existed)."""
+    from .credibility import check_resume
+
+    ctx = _ctx(args)
+    for e in ctx.index.all():
+        if e.stages["stage1_extraction"].status != "success":
+            continue
+        s = check_resume(ctx, e.candidate_id).summary
+        print(f"  {(e.display_name or e.candidate_id)[:28]:28} red {s.red}  amber {s.amber}  green {s.green}"
+              f"{'  (LinkedIn compared)' if s.linkedin else ''}")
+    return 0
+
+
 def cmd_remind(args) -> int:
     from .agent.notify import send_reminders
     from .mailer import make_mailer
@@ -473,6 +487,9 @@ def build_parser() -> argparse.ArgumentParser:
     s = sub.add_parser("results", help="Print the final shortlisted and rejected lists")
     s.add_argument("--csv", type=Path, default=None, help="Also write them to this CSV file")
     s.set_defaults(func=cmd_results)
+
+    s = sub.add_parser("check-credibility", help="Resume credibility checks for every candidate")
+    s.set_defaults(func=cmd_check_credibility)
 
     s = sub.add_parser("rebuild-answers", help="Store per-question answers in older Stage 3 records")
     s.set_defaults(func=cmd_rebuild_answers)

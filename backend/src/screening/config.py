@@ -36,6 +36,7 @@ class PathsConfig(_Strict):
     stage3_sessions: str
     stage3_invites: str
     stage4_output: str = "stage4_evaluation"
+    credibility_output: str = "credibility"
     logs: str
 
 

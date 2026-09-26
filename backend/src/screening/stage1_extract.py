@@ -83,6 +83,14 @@ def run_stage1(ctx: RunContext, llm: LLMClient, *, force: bool = False,
                                 output_path=ref, display_name=extraction.full_name)
             log.info("%s: candidate_id=%s OK name=%r skills=%d roles=%d", STAGE, cid, extraction.full_name,
                      len(extraction.skills), len(extraction.work_experience))
+            try:  # resume credibility checks: code only, instant; a problem here never fails Stage 1
+                from .credibility import check_resume
+
+                cr = check_resume(ctx, cid).summary
+                if cr.red or cr.amber:
+                    log.info("%s: candidate_id=%s credibility flags: %d red, %d amber", STAGE, cid, cr.red, cr.amber)
+            except Exception as ce:
+                log.warning("%s: candidate_id=%s credibility checks skipped: %s", STAGE, cid, ce)
             summary.succeeded.append(cid)
         except Exception as e:  # log-and-skip: one bad resume never stops the batch
             ctx.fail(STAGE, entry, e)

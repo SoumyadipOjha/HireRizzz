@@ -12,6 +12,7 @@ from .schemas import (
     STAGES,
     CandidateEntry,
     CandidatesIndexDoc,
+    CredibilitySummary,
     Notification,
     Review,
     ReviewGate,
@@ -124,6 +125,13 @@ class CandidateIndex:
             entry.reviews.pop("final", None)
         entry.updated_at = utc_now()
         _recompute(entry)
+        self.save(candidate_id)
+        return entry
+
+    def set_credibility(self, candidate_id: str, summary: CredibilitySummary) -> CandidateEntry:
+        entry = self.get(candidate_id)
+        entry.credibility = summary
+        entry.updated_at = utc_now()
         self.save(candidate_id)
         return entry
 

@@ -25,6 +25,7 @@ from urllib.parse import parse_qs, urlparse
 from ..agent.invites import TOKEN_RE, InviteError, InviteStore
 from ..agent.verification import VerificationError
 from ..config import AppConfig, ConfigError
+from ..docx_reader import DocxReadError
 from ..paths import PROJECT_ROOT
 from ..llm.base import LLMError
 from ..schemas import STAGES
@@ -59,6 +60,7 @@ MAX_BODY = 16 * 1024
 MAX_UPLOAD_BODY = 30 * 1024 * 1024   # resume upload (base64 JSON): a few files of up to 10 MB
 MAX_RESUME_BYTES = 10 * 1024 * 1024
 _UUID = re.compile(r"^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$")
+_LINKEDIN_API = re.compile(r"^/api/candidate/([0-9a-f-]{36})/linkedin$")
 _INTERVIEW_API = re.compile(r"^/api/interview/([A-Za-z0-9_-]+)/(info|code|verify|start|turn|end)$")
 _CSP = ("default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; "
         "connect-src 'self'; img-src 'self' data:; frame-ancestors 'none'; base-uri 'none'; form-action 'none'")
@@ -264,6 +266,7 @@ class DashboardAPI:
         if s3 and s3.get("transcript_path"):
             transcript = self.store.get_text(s3["transcript_path"])
         answers = answers_for(self.config, s3) if s3 else None
+        credibility = self._credibility(cid, entry)
         try:
             inv = self.invites.active_for(cid)
         except (OSError, ValueError):
@@ -272,11 +275,58 @@ class DashboardAPI:
                   "sessions": len(inv.sessions), "email_to": inv.email_to, "emailed_at": inv.emailed_at,
                   "email_error": inv.email_error, "reminders_sent": inv.reminders_sent, "opened_at": inv.opened_at,
                   "verified_at": inv.verified_at} if inv else None
-        return {"entry": entry, "records": records, "transcript": transcript, "answers": answers, "invite": invite,
+        return {"entry": entry, "records": records, "transcript": transcript, "answers": answers,
+                "credibility": credibility, "invite": invite,
                 "failures": [f for f in self._failures() if f.get("candidate_id") == cid]}
 
     def failures(self) -> list[dict]:
         return self._failures()
+
+    # -------------------------------------------------------------- resume credibility (loopback only)
+
+    def _credibility(self, cid: str, entry: dict) -> dict | None:
+        from ..credibility import check_resume, load_record
+
+        rec = load_record(self.config, cid)
+        if rec is None and (entry.get("stages", {}).get("stage1_extraction") or {}).get("status") == "success":
+            try:  # candidates screened before the checks existed: run them now (code only, instant)
+                with self.ctx.lock:
+                    self.ctx.index.reload()
+                    rec = check_resume(self.ctx, cid)
+            except Exception as e:
+                self.ctx.logger.warning("credibility: candidate_id=%s checks failed: %s", cid, e)
+        return rec.model_dump(mode="json") if rec else None
+
+    def upload_linkedin(self, cid: str, body: dict) -> dict:
+        """The candidate's LinkedIn 'Save to PDF' export -> compared with their resume."""
+        import base64
+        import binascii
+
+        from ..credibility import check_linkedin
+        from ..llm import make_client
+
+        name, data = body.get("name"), body.get("data")
+        if not isinstance(name, str) or not name.lower().endswith(".pdf") or not isinstance(data, str):
+            raise ValueError("send the LinkedIn profile as a .pdf (LinkedIn -> profile -> More -> Save to PDF)")
+        try:
+            raw = base64.b64decode(data, validate=True)
+        except (binascii.Error, ValueError):
+            raise ValueError("file data is not valid base64") from None
+        if not raw.startswith(b"%PDF") or len(raw) > MAX_RESUME_BYTES:
+            raise ValueError("that isn't a PDF, or it's larger than 10 MB")
+        with self.ctx.lock:
+            entry = self.ctx.index.reload().get(cid)  # KeyError -> 404
+            if entry.stages["stage1_extraction"].status != "success":
+                raise ValueError("read the resume first (Stage 1), then compare it with LinkedIn")
+        folder = self.config.data.root / "input" / "linkedin"
+        folder.mkdir(parents=True, exist_ok=True)
+        path = folder / f"{cid}.pdf"
+        path.write_bytes(raw)
+        llm = self._llm_factory() if self._llm_factory else make_client(self.config)
+        with self.ctx.lock:
+            self.ctx.index.reload()
+            rec = check_linkedin(self.ctx, llm, cid, path, Path(name).name[:120])
+        return rec.model_dump(mode="json")
 
     def all_answers(self) -> list[dict]:
         """Every candidate who has had a screening call, with their answers question by question."""
@@ -418,7 +468,7 @@ class Handler(BaseHTTPRequestHandler):
             if m := _INTERVIEW_API.match(path):
                 return self._interview(m.group(1), m.group(2), method="POST")
             if path in ("/api/approve/shortlist", "/api/approve/final", "/api/send-results", "/api/jd/draft",
-                        "/api/jd/approve", "/api/resumes"):
+                        "/api/jd/approve", "/api/resumes") or _LINKEDIN_API.match(path):
                 return self._dashboard_action(path)
             return self._json({"error": "not found"}, HTTPStatus.NOT_FOUND)
         except Exception as e:
@@ -457,7 +507,9 @@ class Handler(BaseHTTPRequestHandler):
         if not self._same_origin_json():
             return self._json({"error": "forbidden"}, HTTPStatus.FORBIDDEN)
         try:
-            body = self._body(MAX_UPLOAD_BODY if path == "/api/resumes" else MAX_BODY)
+            body = self._body(MAX_UPLOAD_BODY if path == "/api/resumes" or _LINKEDIN_API.match(path) else MAX_BODY)
+            if m := _LINKEDIN_API.match(path):
+                return self._json(self.api.upload_linkedin(m.group(1), body))
             if path == "/api/resumes":
                 return self._json(self.api.upload_resumes(body))
             if path == "/api/send-results":
@@ -467,7 +519,7 @@ class Handler(BaseHTTPRequestHandler):
             if path == "/api/jd/approve":
                 return self._json(self.api.approve_jd(body))
             return self._json(self.api.approve(path.rsplit("/", 1)[-1], body))
-        except (ApprovalError, ValueError) as e:
+        except (ApprovalError, ValueError, DocxReadError) as e:  # DocxReadError: unreadable PDF/resume
             return self._json({"error": str(e)}, HTTPStatus.BAD_REQUEST)
         except ConfigError as e:  # e.g. no Gemini key for the JD writer
             return self._json({"error": str(e)}, HTTPStatus.SERVICE_UNAVAILABLE)

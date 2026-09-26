@@ -44,6 +44,7 @@ class FileStore(Store):
             "stage2_shortlist": self.data.stage2_output,
             "stage3_calls": self.data.stage3_output,
             "stage4_evaluation": self.data.stage4_output,
+            "credibility": self.data.credibility_output,
             "sessions": self.data.stage3_sessions,
             "transcripts": self.data.stage3_transcripts,
         }

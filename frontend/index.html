@@ -248,6 +248,7 @@ pre.log { max-height: 70vh; margin: 0; border-radius: 0 0 var(--radius) var(--ra
 .btn:focus-visible, .seg button:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
 .flag { font-size: 11px; font-weight: 600; color: var(--warn); background: var(--warn-soft); border-radius: 6px; padding: 1px 7px; white-space: nowrap; }
 .flag.ai { color: var(--accent); background: var(--accent-soft); }
+.flag.bad { color: var(--bad); background: var(--bad-soft); }
 .quote { border-left: 3px solid var(--accent); padding: 1px 0 1px 10px; margin: 4px 0; font-size: 12px; color: var(--text); }
 .dropped { font-size: 12px; color: var(--warn); margin: 2px 0 6px; }
 tbody tr.static { cursor: default; }
@@ -579,7 +580,7 @@ function renderRows() {
     const s4 = c.stages.stage4_evaluation;
     return h("tr", { class: c.candidate_id === state.selected ? "sel" : "", onclick: () => selectCandidate(c.candidate_id), tabindex: "0",
         onkeydown: (e) => { if (e.key === "Enter") selectCandidate(c.candidate_id); } },
-      h("td", {}, h("div", { class: "name" }, c.display_name || fileName(c.source_file)), h("div", { class: "file" }, fileName(c.source_file))),
+      h("td", {}, h("div", { class: "name" }, c.display_name || fileName(c.source_file), credFlag(c)), h("div", { class: "file" }, fileName(c.source_file))),
       h("td", {}, pill(overall)),
       h("td", {}, h("span", { class: "dots" }, state.ov.stages.map((s) =>
         h("i", { class: "dot " + c.stages[s].status, title: `${STAGE_LABEL[s]}: ${c.stages[s].status}${c.stages[s].error ? " — " + c.stages[s].error : c.stages[s].note ? " — " + c.stages[s].note : ""}` })))),
@@ -693,6 +694,9 @@ function renderDetail(d) {
       h("p", { class: "prose" }, s2.rationale),
       h("div", { class: "small muted", style: "margin-top:6px" }, `Scored by ${s2.llm?.model || "?"} · ${fmtTime(s2.created_at)} · name, contact and location hidden from the scorer`)));
   }
+
+  // resume credibility
+  out.push(credibilitySection(c, d.credibility));
 
   // screening call
   const st3 = c.stages.stage3_calling;
@@ -828,6 +832,7 @@ function gateCard({ gate, title, who, list, stage, scoreLabel, explain, action }
     return h("tr", { class: "static" },
       h("td", {}, h("button", { class: "linkish", onclick: () => openCandidate(c.candidate_id), title: "Open candidate details" }, c.display_name || fileName(c.source_file)),
         needs ? h("div", {}, h("span", { class: "flag", title: st.note }, "needs review")) : null,
+        credFlag(c) ? h("div", {}, credFlag(c)) : null,
         gate === "final" && ai === "rejected" ? h("div", {}, h("span", { class: "flag", title: "Below the pass mark. You can still shortlist this candidate." },
           `below pass mark (${state.ov.evaluation?.final_threshold ?? "?"})`)) : null),
       h("td", { class: "num" }, st.score != null ? st.score.toFixed(1) : "—"),
@@ -952,6 +957,52 @@ async function loadResults() {
     block("Final shortlist", lists.shortlisted, "No one on the final shortlist yet.", "var(--ok)"),
     block("Rejected", lists.rejected, "No final rejections yet.", "var(--bad)"),
     lists.awaiting_approval.length ? block("Waiting for the hiring manager", lists.awaiting_approval, "", "var(--warn)") : null));
+}
+
+// ---------- resume credibility ----------
+function credFlag(c) {
+  const s = c.credibility;
+  if (!s || !(s.red || s.amber)) return null;
+  return h("span", { class: "flag " + (s.red ? "bad" : ""), title: "Resume credibility: open the candidate to see the evidence", style: "margin-left:6px" },
+    s.red ? `⚠ ${s.red} credibility issue${s.red > 1 ? "s" : ""}` : `${s.amber} to check`);
+}
+
+function credibilitySection(c, rec) {
+  const s = rec?.summary;
+  const input = h("input", { type: "file", accept: ".pdf,application/pdf", class: "hidden", id: "li-" + c.candidate_id });
+  const btn = h("label", { class: "btn", for: "li-" + c.candidate_id, style: "padding:4px 10px;font-size:12px" },
+    s?.linkedin ? "Replace LinkedIn PDF" : "⬆ Upload LinkedIn PDF");
+  input.addEventListener("change", async (e) => {
+    const f = e.target.files[0]; e.target.value = "";
+    if (!f) return;
+    btn.textContent = "Comparing with the resume…";
+    try {
+      const data = await new Promise((ok, bad) => { const r = new FileReader(); r.onload = () => ok(String(r.result).split(",")[1] || ""); r.onerror = bad; r.readAsDataURL(f); });
+      const r = await postJSON(`/api/candidate/${c.candidate_id}/linkedin`, { name: f.name, data });
+      toast(`LinkedIn compared: ${r.summary.red} issue(s), ${r.summary.amber} to check, ${r.summary.green} confirmed.`, r.summary.red > 0);
+      delete state.detailCache[c.candidate_id]; state.sig = null; await refresh(); selectCandidate(c.candidate_id, { keepScroll: true });
+    } catch (err) { toast("LinkedIn check failed: " + err.message, true); btn.textContent = "⬆ Upload LinkedIn PDF"; }
+  });
+  const dot = { red: "var(--bad)", amber: "var(--warn)", green: "var(--ok)" };
+  const label = { red: "Issue", amber: "Check", green: "Confirmed" };
+  const flags = rec?.flags || [];
+  return h("div", { class: "section" },
+    h("h3", {}, "Resume credibility",
+      s ? h("span", { class: "small muted", style: "text-transform:none;letter-spacing:0" },
+        `${s.red} issue${s.red === 1 ? "" : "s"} · ${s.amber} to check · ${s.green} confirmed${s.linkedin ? " · LinkedIn compared" : ""}`) : null),
+    h("div", { style: "display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin-bottom:10px" }, btn, input,
+      h("span", { class: "small muted" }, s?.linkedin ? `Compared with ${rec.linkedin_file || "LinkedIn PDF"}` :
+        "Ask the candidate for their LinkedIn PDF: LinkedIn → their profile → More (or Resources) → Save to PDF.")),
+    !rec ? h("div", { class: "small muted" }, "Checks run once the resume has been read.")
+    : !flags.length ? h("div", { class: "small", style: "color:var(--ok)" }, "No problems found in the resume's dates and claims.")
+    : h("div", { class: "timeline" }, flags.map((f) => h("div", { class: "qa", style: `border-left:3px solid ${dot[f.level]}` },
+        h("div", { class: "qh" }, h("span", { style: `color:${dot[f.level]};font-weight:650` }, label[f.level]), h("span", {}, f.check.replaceAll("_", " "))),
+        h("div", { class: "qq" }, f.message),
+        (f.resume || f.linkedin) ? h("div", { class: "ex" },
+          f.resume ? h("div", { class: "c" }, h("b", {}, "Resume: "), f.resume) : null,
+          f.linkedin ? h("div", { class: "c" }, h("b", {}, "LinkedIn: "), f.linkedin) : null) : null))),
+    h("div", { class: "small muted", style: "margin-top:8px" },
+      "Flags are for a human to look into, never an automatic rejection. LinkedIn is self-reported too: before an offer, verify employment (EPFO/UAN or a background check)."));
 }
 
 // ---------- interview answers ----------

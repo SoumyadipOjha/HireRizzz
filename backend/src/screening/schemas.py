@@ -86,6 +86,7 @@ class CandidateEntry(_Model):
     stages: dict[StageName, StageState] = Field(default_factory=lambda: {s: StageState() for s in STAGES})
     reviews: dict[ReviewGate, Review] = Field(default_factory=dict)
     notifications: dict[ReviewGate, Notification] = Field(default_factory=dict)  # keyed by the gate it follows
+    credibility: "CredibilitySummary | None" = None  # resume checks / LinkedIn cross-check (credibility.py)
 
     @model_validator(mode="after")
     def _all_stages(self) -> "CandidateEntry":
@@ -349,6 +350,40 @@ class Stage4Record(Envelope):
 
 
 # ---------------------------------------------------------------------------
+# Resume credibility (credibility.py): code checks + LinkedIn PDF cross-check
+# ---------------------------------------------------------------------------
+
+FlagLevel = Literal["red", "amber", "green"]
+
+
+class CredibilityFlag(_Model):
+    level: FlagLevel                      # red = contradiction, amber = worth a question, green = confirmed
+    check: str                            # e.g. timeline_overlap, experience_inflated, linkedin_dates
+    message: str
+    resume: str | None = None             # what the resume says
+    linkedin: str | None = None           # what the LinkedIn profile says
+
+
+class CredibilitySummary(_Model):
+    red: int = 0
+    amber: int = 0
+    green: int = 0
+    linkedin: bool = False                # a LinkedIn PDF was compared
+    updated_at: str | None = None
+
+
+class CredibilityRecord(_Model):
+    schema_version: str = SCHEMA_VERSION
+    candidate_id: str
+    created_at: str = Field(default_factory=utc_now)
+    flags: list[CredibilityFlag]
+    summary: CredibilitySummary
+    linkedin_file: str | None = None      # uploaded file name
+    linkedin_profile: ResumeExtractionLLM | None = None  # what Gemini read from the LinkedIn PDF
+    llm: LLMInfo | None = None
+
+
+# ---------------------------------------------------------------------------
 # JD writer (jd_writer.py): hiring manager's brief -> draft JD + role questions
 # ---------------------------------------------------------------------------
 
@@ -373,10 +408,15 @@ class JDDraftLLM(_Model):
                                                   "handled it; empty if none")
 
 
+# CandidateEntry refers to CredibilitySummary, defined further down.
+CandidateEntry.model_rebuild()
+CandidatesIndexDoc.model_rebuild()
+
 EXPORTED_SCHEMAS: dict[str, type[BaseModel]] = {
     "candidates_index": CandidatesIndexDoc,
     "stage1_extracted": Stage1Record,
     "stage2_shortlist": Stage2Record,
     "stage3_calls": Stage3Record,
     "stage4_evaluation": Stage4Record,
+    "credibility": CredibilityRecord,
 }
