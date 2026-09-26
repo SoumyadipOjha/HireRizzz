@@ -1,7 +1,7 @@
 """Stage 3 — screening call with the in-house agent.
 
 `run_stage3` issues a private interview link to every shortlisted candidate
-(status `awaiting`). The candidate talks to the agent in the browser (voice
+and emails it (QR code + button, agent/notify.py; status `awaiting`). The candidate talks to the agent in the browser (voice
 or text, see agent/ and the dashboard server). When the conversation ends,
 `finalize_dialogue` saves the transcript, parses it with the LLM and writes
 data/stage3_calls/<candidate_id>.json — the same record as before.
@@ -14,9 +14,11 @@ from pathlib import Path
 
 from .agent.dialogue import ScreeningDialogue
 from .agent.invites import InviteStore
-from .config import AppConfig
+from .agent.notify import email_invite, interview_url  # noqa: F401  (interview_url re-exported)
+from .config import AppConfig, ConfigError
 from .context import RunContext, StageSummary
 from .llm import LLMClient
+from .mailer import Mailer, make_mailer, mask_email
 from .prompts import load_prompt
 from .storage import Store, load_model
 from .schemas import CallInfo, LLMInfo, ScreeningAnswerLLM, Stage2Record, Stage3Record, TranscriptParseLLM
@@ -25,10 +27,6 @@ from .stage2_shortlist import JoinKeyMismatchError, load_stage1
 STAGE = "stage3_calling"
 UPSTREAM = "stage2_shortlisting"
 PROMPT_DIR = "stage3_calling"
-
-
-def interview_url(config: AppConfig, token: str) -> str:
-    return f"{config.settings.stage3.public_base_url}/interview/{token}"
 
 
 def _questions_block(config: AppConfig) -> str:
@@ -47,13 +45,29 @@ def load_stage2(entry, store: Store) -> Stage2Record:
 # Invites
 # ---------------------------------------------------------------------------
 
-def run_stage3(ctx: RunContext, *, force: bool = False, only: set[str] | None = None) -> StageSummary:
-    """Give every shortlisted candidate an interview link. Re-running keeps
-    existing active links; --force issues fresh ones (old links stop working)."""
+def _invite_mailer(ctx: RunContext, mailer: Mailer | None) -> tuple[Mailer | None, str | None]:
+    """(mailer, reason it's unavailable). Missing SMTP settings never stop Stage 3."""
+    if mailer is not None:
+        return mailer, None
+    if not ctx.config.settings.email.send_invites:
+        return None, "email.send_invites is off"
+    try:
+        return make_mailer(ctx.config), None
+    except ConfigError as e:
+        ctx.logger.warning("%s: invites will not be emailed: %s", STAGE, e)
+        return None, "email not configured"
+
+
+def run_stage3(ctx: RunContext, *, force: bool = False, only: set[str] | None = None,
+               resend: bool = False, mailer: Mailer | None = None) -> StageSummary:
+    """Give every shortlisted candidate an interview link and email it (QR + button).
+    Re-running keeps existing active links and does not email them again; --resend
+    re-emails active links; --force issues fresh ones (old links stop working)."""
     summary = StageSummary(STAGE)
     log = ctx.logger
     invites = InviteStore(ctx.config.store)
     ttl = ctx.config.settings.stage3.invite_ttl_days
+    mailer, no_mail = _invite_mailer(ctx, mailer)
 
     for entry in ctx.index.all():
         cid = entry.candidate_id
@@ -86,8 +100,16 @@ def run_stage3(ctx: RunContext, *, force: bool = False, only: set[str] | None = 
                 inv = invites.create(cid, ttl)
             url = interview_url(ctx.config, inv.token)
             expires = datetime.fromisoformat(inv.expires_at).strftime("%Y-%m-%d")
-            # keep a partial record from an earlier rescheduled/abandoned call visible
-            ctx.awaiting(STAGE, entry, f"interview link {'active' if reused else 'issued'} (expires {expires}): {url}",
+            if inv.emailed_at and not resend:
+                mail_note = f"invite already emailed to {mask_email(inv.email_to)}" if inv.email_to else None
+            elif mailer is None:
+                mail_note = f"invite NOT emailed ({no_mail}); share the link manually"
+            else:
+                _, mail_note = email_invite(ctx.config, invites, entry, inv, mailer, log)
+            # The note always ends with the URL (the CLI prints it from there).
+            # Keep a partial record from an earlier rescheduled/abandoned call visible.
+            note = f"interview link {'active' if reused else 'issued'} (expires {expires})"
+            ctx.awaiting(STAGE, entry, f"{note}; {mail_note}: {url}" if mail_note else f"{note}: {url}",
                          output_path=st.output_path)
             summary.awaiting.append(cid)
         except Exception as e:

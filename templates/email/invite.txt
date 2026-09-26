@@ -1,0 +1,11 @@
+Hi {{first_name}},
+
+Thanks for applying for {{job_title}} at {{company_name}}. Your profile made the shortlist, and the next step is a short screening conversation with our AI recruiting assistant.
+
+It takes about {{minutes}} minutes. You can talk (Chrome, Edge or Safari) or type, at any time before {{expires_on}}.
+
+Start screening: {{link}}
+
+Before the call starts we'll email you a one-time code to confirm it's you. The link is personal to you, so please don't forward it.
+
+{{company_name}} Recruiting

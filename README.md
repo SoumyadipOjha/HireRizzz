@@ -90,11 +90,23 @@ if any candidate failed, 2 for configuration errors (nothing processed).
 ## Stage 3: the screening agent
 
 ```bash
-uv run screening call                            # issues a private link per shortlisted candidate (prints them)
+uv run screening call                            # private link per shortlisted candidate, emailed with a QR code
+uv run screening call --resend                   # email active links again (e.g. after fixing SMTP settings)
+uv run screening remind                          # remind candidates who haven't started (the server also does this)
 uv run screening serve                           # dashboard + interview pages on http://127.0.0.1:8765
 uv run screening simulate-call <candidate_id>    # talk to the agent in the terminal (testing)
+uv run screening --email outbox call             # dry run: emails go to data/outbox/*.eml, nothing is sent
 ```
 
+* **Invite email** (`templates/email/invite.*`): a "Start screening" button and a QR
+  code (inline image, so Gmail shows it) for the same personal link, sent to the
+  email address in the resume. Links expire after `stage3.invite_ttl_days`. An email
+  problem never fails the stage: the link is still issued and the index note says why
+  it wasn't emailed. Gmail needs an **app password** in `SMTP_PASS`.
+* **Confirm it's you**: before the call, the page emails a 6-digit code to that
+  address (`stage3.verify_email`). A correct code unlocks the call in that browser
+  tab only, so a forwarded link is useless. Codes expire, attempts are limited, and
+  only hashes are stored.
 * The candidate opens their link, reads what to expect (AI assistant,
   recorded, ~5 minutes) and chooses **voice** (Chrome/Edge/Safari) or **typing**.
 * Code runs the structure (consent → each question in order → close);

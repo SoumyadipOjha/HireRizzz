@@ -8,8 +8,10 @@ from pathlib import Path
 
 import pytest
 
-# Tests use the JSON-file backend unless a test opts into MongoDB explicitly.
+# Tests use the JSON-file backend unless a test opts into MongoDB explicitly,
+# and never send real email: messages go to <data>/outbox as .eml files.
 os.environ["STORAGE_BACKEND"] = "file"
+os.environ["EMAIL_MODE"] = "outbox"
 
 from screening.config import load_config
 from screening.context import RunContext

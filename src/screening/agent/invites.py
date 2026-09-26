@@ -36,6 +36,20 @@ class Invite(BaseModel):
     status: InviteStatus = "active"
     sessions: list[str] = []
     updated_at: str | None = None
+    # email (agent/notify.py)
+    email_to: str | None = None
+    emailed_at: str | None = None
+    email_error: str | None = None
+    reminders_sent: int = 0
+    last_reminded_at: str | None = None
+    opened_at: str | None = None
+    # one-time code before the call (hashes only; the code and access key are never stored)
+    otp_hash: str | None = None
+    otp_sent_at: str | None = None
+    otp_expires_at: str | None = None
+    otp_attempts: int = 0
+    access_key_hash: str | None = None
+    verified_at: str | None = None
 
     def expired(self) -> bool:
         return datetime.now(timezone.utc) >= datetime.fromisoformat(self.expires_at)
@@ -88,7 +102,12 @@ class InviteStore:
             raise InviteError("this link has expired")
         return inv
 
-    def update(self, token: str, *, status: InviteStatus | None = None, add_session: str | None = None) -> None:
+    def update(self, token: str, *, status: InviteStatus | None = None, add_session: str | None = None,
+               **fields) -> Invite:
+        """Change an invite; `fields` are any other Invite attributes (e.g. emailed_at=...)."""
+        unknown = set(fields) - set(Invite.model_fields)
+        if unknown:
+            raise ValueError(f"unknown invite fields: {sorted(unknown)}")
         with self._lock:
             invites = self._load()
             inv = invites[token]
@@ -96,5 +115,16 @@ class InviteStore:
                 inv.status = status
             if add_session and add_session not in inv.sessions:
                 inv.sessions.append(add_session)
+            for k, v in fields.items():
+                setattr(inv, k, v)
             inv.updated_at = utc_now()
             self._save(invites, [token])
+            return inv
+
+    def get(self, token: str) -> Invite | None:
+        with self._lock:
+            return self._load().get(token)
+
+    def all(self) -> list[Invite]:
+        with self._lock:
+            return list(self._load().values())

@@ -22,6 +22,7 @@ from pathlib import Path
 from urllib.parse import parse_qs, urlparse
 
 from ..agent.invites import TOKEN_RE, InviteError, InviteStore
+from ..agent.verification import VerificationError
 from ..config import AppConfig, ConfigError
 from ..schemas import STAGES
 
@@ -29,7 +30,7 @@ STATIC = Path(__file__).parent / "static"
 DEMO_MARKER = "DEMO_DATA.txt"
 MAX_BODY = 16 * 1024
 _UUID = re.compile(r"^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$")
-_INTERVIEW_API = re.compile(r"^/api/interview/([A-Za-z0-9_-]+)/(info|start|turn|end)$")
+_INTERVIEW_API = re.compile(r"^/api/interview/([A-Za-z0-9_-]+)/(info|code|verify|start|turn|end)$")
 _CSP = ("default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; "
         "connect-src 'self'; img-src 'self' data:; frame-ancestors 'none'; base-uri 'none'; form-action 'none'")
 
@@ -211,11 +212,19 @@ class Handler(BaseHTTPRequestHandler):
             if method != "POST":
                 return self._json({"error": "method not allowed"}, HTTPStatus.METHOD_NOT_ALLOWED)
             body = self._body()
+            if action == "code":
+                return self._json(svc.request_code(token))
+            if action == "verify":
+                code = body.get("code")
+                if not isinstance(code, str) or len(code) > 20:
+                    return self._json({"error": "code must be a short string"}, HTTPStatus.BAD_REQUEST)
+                return self._json(svc.verify_code(token, code))
             if action == "start":
                 channel = body.get("channel")
                 if channel not in ("browser_voice", "browser_text"):
                     return self._json({"error": "channel must be browser_voice or browser_text"}, HTTPStatus.BAD_REQUEST)
-                return self._json(svc.start(token, channel))
+                key = body.get("access_key")
+                return self._json(svc.start(token, channel, key if isinstance(key, str) else None))
             sid = str(body.get("session_id") or "")
             if not _UUID.match(sid):
                 return self._json({"error": "invalid session_id"}, HTTPStatus.BAD_REQUEST)
@@ -227,8 +236,10 @@ class Handler(BaseHTTPRequestHandler):
             return self._json(svc.hang_up(token, sid))  # action == "end"
         except InviteError as e:
             return self._json({"error": str(e)}, HTTPStatus.GONE)
-        except ConfigError as e:  # e.g. GEMINI_API_KEY missing
-            svc.ctx.logger.error("stage3 agent: cannot start interview: %s", e)
+        except VerificationError as e:
+            return self._json({"error": str(e)}, e.status)
+        except ConfigError as e:  # e.g. GEMINI_API_KEY or SMTP settings missing
+            svc.ctx.logger.error("stage3 agent: cannot serve %s: %s", action, e)
             return self._json({"error": "The screening assistant is not available right now. "
                                         "Please try again later."}, HTTPStatus.SERVICE_UNAVAILABLE)
         except ValueError as e:
@@ -252,6 +263,17 @@ def serve(config: AppConfig, port: int = 8765, open_browser: bool = True, host: 
         config.api_key()
     except ConfigError as e:
         print(f"WARNING: {e}\n         The dashboard works, but interviews cannot start until the key is set.", flush=True)
+    try:
+        from ..mailer import make_mailer
+
+        mailer = make_mailer(config)
+        print(f"Email:      {mailer.mode}", flush=True)
+    except ConfigError as e:
+        mailer = None
+        print(f"WARNING: {e}\n         Verification codes and reminders cannot be emailed until this is set.", flush=True)
+    stop = threading.Event()
+    if mailer is not None and config.settings.email.auto_reminders:
+        threading.Thread(target=_reminder_loop, args=(ctx, mailer, stop), name="reminders", daemon=True).start()
     if open_browser:
         threading.Timer(0.5, lambda: webbrowser.open(url)).start()
     try:
@@ -259,5 +281,20 @@ def serve(config: AppConfig, port: int = 8765, open_browser: bool = True, host: 
     except KeyboardInterrupt:
         pass
     finally:
+        stop.set()
         httpd.server_close()
         interviews.shutdown()
+
+
+REMINDER_CHECK_SECONDS = 600
+
+
+def _reminder_loop(ctx, mailer, stop: threading.Event) -> None:
+    """Every 10 minutes, email candidates who haven't started their call (email.reminder_after_hours)."""
+    from ..agent.notify import send_reminders
+
+    while not stop.wait(REMINDER_CHECK_SECONDS):
+        try:
+            send_reminders(ctx, mailer)
+        except Exception as e:  # never let a mail/DB hiccup kill the loop
+            ctx.logger.error("reminders: check failed: %s: %s", type(e).__name__, e)

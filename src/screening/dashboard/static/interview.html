@@ -99,6 +99,7 @@ ul.points li b { color: var(--text); font-weight: 600; }
 .composer { display: flex; gap: 8px; flex: 1 1 260px; min-width: 0; }
 .input { flex: 1; min-width: 0; border: 1px solid var(--border); background: var(--surface-2); border-radius: 999px; padding: 10px 16px; }
 .hint { font-size: 12px; color: var(--text-3); padding: 0 14px 12px; }
+.input.code { letter-spacing: .3em; font-variant-numeric: tabular-nums; font-size: 18px; max-width: 220px; border-radius: 12px; }
 .center { text-align: center; }
 .big-ico { width: 56px; height: 56px; border-radius: 50%; display: grid; place-items: center; margin: 0 auto 14px; font-size: 26px;
   background: var(--ok-soft); color: var(--ok); }
@@ -114,6 +115,24 @@ footer { margin-top: auto; padding-top: 18px; text-align: center; font-size: 12p
     <div class="eyebrow">Screening call</div>
     <h1 id="err-title">This link isn't available</h1>
     <p class="muted" id="err-text"></p>
+  </section>
+
+  <!-- email verification (one-time code) -->
+  <section id="v-verify" class="card pad hidden">
+    <div class="eyebrow" id="v-role"></div>
+    <h1>Confirm it's you</h1>
+    <p class="muted">Before the call starts, we'll email a one-time code to <b id="v-email"></b>. This keeps your personal link from being used by anyone else.</p>
+    <div class="actions" id="v-ask"><button class="btn primary" id="b-code">Email me a code</button></div>
+    <div id="v-enter" class="hidden">
+      <label class="small muted" for="code">Code from the email</label>
+      <div class="composer" style="margin-top:6px">
+        <input class="input code" id="code" type="text" inputmode="numeric" autocomplete="one-time-code" maxlength="10" placeholder="123456">
+        <button class="btn primary" id="b-verify">Verify</button>
+      </div>
+      <p class="small muted" style="margin-top:12px" id="v-sent"></p>
+      <button class="btn" id="b-resend">Send a new code</button>
+    </div>
+    <div class="note err hidden" id="v-err" role="alert"></div>
   </section>
 
   <!-- landing -->
@@ -177,11 +196,55 @@ const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
 const canSpeak = "speechSynthesis" in window;
 const canListen = !!SR;
 
-const S = { info: null, session: null, mode: "text", ended: false, busy: false, muted: false,
+const S = { info: null, session: null, accessKey: null, mode: "text", ended: false, busy: false, muted: false,
             rec: null, recActive: false, finalText: "", silenceTimer: null, noSpeech: 0, startedAt: 0, timerId: null, voice: null };
 const SILENCE_MS = 1700;   // pause length that ends the candidate's turn
 
-function show(view) { ["loading", "error", "landing", "call", "ended"].forEach((v) => $("v-" + v).classList.toggle("hidden", v !== view)); }
+function show(view) { ["loading", "error", "verify", "landing", "call", "ended"].forEach((v) => $("v-" + v).classList.toggle("hidden", v !== view)); }
+
+// ---------------------------------------------------------------- email verification
+// The access key only lives in this tab: a forwarded link still needs the candidate's inbox.
+const KEY_SLOT = "screening-access:" + TOKEN;
+function getKey() { try { return sessionStorage.getItem(KEY_SLOT); } catch (e) { return S.accessKey || null; } }
+function setKey(k) { S.accessKey = k; try { k ? sessionStorage.setItem(KEY_SLOT, k) : sessionStorage.removeItem(KEY_SLOT); } catch (e) {} }
+function verifyError(msg) { const n = $("v-err"); n.textContent = msg || ""; n.classList.toggle("hidden", !msg); }
+
+function showVerify() {
+  $("v-role").textContent = `${S.info.job_title} · ${S.info.company_name}`;
+  $("v-email").textContent = S.info.email_hint || "your email address";
+  verifyError("");
+  show("verify");
+}
+async function requestCode() {
+  verifyError("");
+  $("b-code").disabled = true; $("b-resend").disabled = true;
+  try {
+    const r = await api("/code", {});
+    $("v-ask").classList.add("hidden"); $("v-enter").classList.remove("hidden");
+    $("v-sent").textContent = `We sent a code to ${r.sent_to}. It expires in ${r.expires_in_minutes} minutes. Check your spam folder if you don't see it.`;
+    $("code").value = ""; $("code").focus();
+  } catch (e) {
+    if (e.status === 410) return fail("This link isn't available", e.message);
+    verifyError(e.message);
+  } finally {
+    $("b-code").disabled = false; $("b-resend").disabled = false;
+  }
+}
+async function verifyCode() {
+  const code = $("code").value.replace(/\s+/g, "");
+  if (!/^\d{4,10}$/.test(code)) return verifyError("Enter the code from the email: digits only.");
+  verifyError(""); $("b-verify").disabled = true;
+  try {
+    const r = await api("/verify", { code });
+    setKey(r.access_key);
+    show("landing");
+  } catch (e) {
+    if (e.status === 410) return fail("This link isn't available", e.message);
+    verifyError(e.message);
+  } finally {
+    $("b-verify").disabled = false;
+  }
+}
 function fail(title, text) { $("err-title").textContent = title; $("err-text").textContent = text; show("error"); }
 
 async function api(path, body) {
@@ -318,12 +381,13 @@ async function start(mode) {
   if (mode === "voice" && canSpeak) { S.voice = pickVoice(); speechSynthesis.speak(new SpeechSynthesisUtterance("")); } // unlock audio on the click
   setState("thinking", "Connecting…"); typing(true);
   try {
-    const r = await api("/start", { channel: mode === "voice" ? "browser_voice" : "browser_text" });
+    const r = await api("/start", { channel: mode === "voice" ? "browser_voice" : "browser_text", access_key: getKey() });
     S.session = r.session_id;
     typing(false);
     await agentSays(r.say, false);
   } catch (e) {
     typing(false); clearInterval(S.timerId);
+    if (e.status === 403 && S.info?.verification_required) { setKey(null); showVerify(); verifyError(e.message); return; }
     fail("We couldn't start the call", e.message);
   }
 }
@@ -398,6 +462,10 @@ $("b-mute").onclick = () => {
 };
 $("b-switch").onclick = () => switchToText("Switched to typing.");
 $("b-end").onclick = endCall;
+$("b-code").onclick = requestCode;
+$("b-resend").onclick = requestCode;
+$("b-verify").onclick = verifyCode;
+$("code").addEventListener("keydown", (e) => { if (e.key === "Enter") { e.preventDefault(); verifyCode(); } });
 window.addEventListener("pagehide", () => {  // closing the tab = hanging up
   if (S.session && !S.ended) navigator.sendBeacon(API + "/end", JSON.stringify({ session_id: S.session }));
 });
@@ -424,7 +492,7 @@ window.addEventListener("pagehide", () => {  // closing the tab = hanging up
     const n = $("l-nosupport"); n.classList.remove("hidden");
     n.textContent = "Voice needs a secure (https) link. You can type your answers instead.";
   }
-  show("landing");
+  if (i.verification_required && !getKey()) showVerify(); else show("landing");
 })();
 </script>
 </body>

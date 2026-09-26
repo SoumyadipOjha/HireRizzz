@@ -1,0 +1,7 @@
+Hi {{first_name}},
+
+Your verification code for the {{job_title}} screening call is: {{code}}
+
+It expires in {{minutes}} minutes. If you didn't ask for this code, you can ignore this email.
+
+{{company_name}} Recruiting

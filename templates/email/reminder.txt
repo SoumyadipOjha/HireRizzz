@@ -1,0 +1,9 @@
+Hi {{first_name}},
+
+A quick reminder about the next step for {{job_title}} at {{company_name}}: a {{minutes}}-minute conversation with our AI recruiting assistant, whenever it suits you before {{expires_on}}.
+
+Start screening: {{link}}
+
+Not interested any more? Open the link and tell the assistant; we won't contact you about this role again.
+
+{{company_name}} Recruiting

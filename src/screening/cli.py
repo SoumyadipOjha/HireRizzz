@@ -16,7 +16,7 @@ from .storage import StoreError
 
 
 def _ctx(args) -> RunContext:
-    return RunContext.create(load_config(data_dir=args.data_dir, storage=args.storage))
+    return RunContext.create(load_config(data_dir=args.data_dir, storage=args.storage, email=args.email))
 
 
 def cmd_ingest(args) -> int:
@@ -62,11 +62,14 @@ def _print_invites(ctx: RunContext, cids: list[str]) -> None:
     if not cids:
         return
     print()
-    print("Interview links (share each one only with that candidate):", flush=True)
+    print("Interview links (each one is personal to that candidate):", flush=True)
     for cid in cids:
         e = ctx.index.get(cid)
-        url = (e.stages["stage3_calling"].note or "").rsplit(": ", 1)[-1]
+        head, _, url = (e.stages["stage3_calling"].note or "").rpartition(": ")
+        mail = head.split("; ", 1)[1] if "; " in head else ""
         print(f"  {e.display_name or cid:24} {url}", flush=True)
+        if mail:
+            print(f"  {'':24} {mail}", flush=True)
     print("Start the server so the links work:  uv run screening serve", flush=True)
     print()
 
@@ -76,9 +79,20 @@ def cmd_call(args) -> int:
 
     ctx = _ctx(args)
     ctx.config.job, ctx.config.questions  # validate config before touching candidates
-    s3 = run_stage3(ctx, force=args.force, only=_only(args))
+    s3 = run_stage3(ctx, force=args.force, only=_only(args), resend=args.resend)
     _print_invites(ctx, s3.awaiting)
     return _exit_code(s3)
+
+
+def cmd_remind(args) -> int:
+    from .agent.notify import send_reminders
+    from .mailer import make_mailer
+
+    ctx = _ctx(args)
+    ctx.config.job, ctx.config.questions
+    sent = send_reminders(ctx, make_mailer(ctx.config))
+    print(f"{len(sent)} reminder(s) sent")
+    return 0
 
 
 def cmd_run(args) -> int:
@@ -168,7 +182,7 @@ def cmd_check_llm(args) -> int:
     from .llm import make_client
     from .llm.base import LLMError
 
-    cfg = load_config(data_dir=args.data_dir, storage=args.storage)
+    cfg = load_config(data_dir=args.data_dir, storage=args.storage, email=args.email)
     client = make_client(cfg)
     print(f"provider={client.provider} configured model={client.model}")
     try:
@@ -187,12 +201,12 @@ def cmd_check_llm(args) -> int:
 def cmd_dashboard(args) -> int:
     from .dashboard import serve
 
-    serve(load_config(data_dir=args.data_dir, storage=args.storage), port=args.port, open_browser=not args.no_browser, host=args.host)
+    serve(load_config(data_dir=args.data_dir, storage=args.storage, email=args.email), port=args.port, open_browser=not args.no_browser, host=args.host)
     return 0
 
 
 def cmd_status(args) -> int:
-    cfg = load_config(data_dir=args.data_dir, storage=args.storage)
+    cfg = load_config(data_dir=args.data_dir, storage=args.storage, email=args.email)
     from .index import CandidateIndex
 
     index = CandidateIndex(cfg.store)
@@ -236,6 +250,9 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--data-dir", type=Path, default=None, help="Data directory (default: <project>/data)")
     p.add_argument("--storage", choices=("file", "mongodb"), default=None,
                    help="Where data is stored (default: STORAGE_BACKEND env var, else storage.backend in settings.yaml)")
+    p.add_argument("--email", choices=("smtp", "outbox"), default=None,
+                   help="smtp = send emails; outbox = write them to <data>/outbox as .eml files (dry run). "
+                        "Default: EMAIL_MODE env var, else email.mode in settings.yaml")
     sub = p.add_subparsers(dest="command", required=True)
 
     s = sub.add_parser("ingest", help="Stage 0: register resumes and assign candidate_ids")
@@ -250,7 +267,12 @@ def build_parser() -> argparse.ArgumentParser:
 
     stage_cmd("extract", "Stage 1: extract structured profiles from resumes (LLM)", cmd_extract)
     stage_cmd("shortlist", "Stage 2: score profiles against the job and decide", cmd_shortlist)
-    stage_cmd("call", "Stage 3: issue private interview links to shortlisted candidates", cmd_call)
+    stage_cmd("call", "Stage 3: issue private interview links to shortlisted candidates and email them", cmd_call)
+    sub.choices["call"].add_argument("--resend", action="store_true",
+                                     help="Email active links again (e.g. after fixing SMTP settings)")
+
+    s = sub.add_parser("remind", help="Stage 3: email a reminder to candidates who haven't started their call")
+    s.set_defaults(func=cmd_remind)
 
     s = sub.add_parser("run", help="Ingest + Stages 1-3 in order")
     s.add_argument("--input-dir", type=Path, default=None)

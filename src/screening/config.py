@@ -88,6 +88,11 @@ class Stage3Config(_Strict):
     max_turn_chars: int = Field(default=2000, gt=50)
     speech_lang: str = "en-IN"                       # browser speech recognition / voice language
     agent_temperature: float = Field(default=0.4, ge=0, le=2)
+    verify_email: bool = True                        # candidate enters a code sent to their email before the call
+    otp_length: int = Field(default=6, ge=4, le=10)
+    otp_expiry_minutes: int = Field(default=10, gt=0)
+    otp_max_attempts: int = Field(default=5, gt=0)
+    otp_resend_seconds: int = Field(default=30, ge=0)  # minimum gap between two codes
 
     @field_validator("public_base_url")
     @classmethod
@@ -99,6 +104,7 @@ class Stage3Config(_Strict):
 
 StorageBackend = Literal["file", "mongodb"]
 STORAGE_ENV = "STORAGE_BACKEND"  # overrides storage.backend (tests and --storage use it)
+EMAIL_MODE_ENV = "EMAIL_MODE"    # overrides email.mode (smtp | outbox)
 
 
 class StorageConfig(_Strict):
@@ -107,6 +113,22 @@ class StorageConfig(_Strict):
     mongodb_db_env: str = "MONGODB_DB_NAME"
     default_uri: str = "mongodb://localhost:27017"   # used when MONGODB_URI is not set
     default_database: str = "recruiting_screening"
+
+
+class EmailConfig(_Strict):
+    # smtp: send for real (SMTP_* in .env). outbox: write .eml files to <data>/outbox instead (dry run / tests).
+    mode: Literal["smtp", "outbox"] = "smtp"
+    from_name: str = "Talent Team"
+    send_invites: bool = True                 # `screening call` emails each new interview link
+    reminder_after_hours: float = Field(default=24, gt=0)
+    max_reminders: int = Field(default=1, ge=0)
+    auto_reminders: bool = True               # the server sends due reminders in the background
+    smtp_host_env: str = "SMTP_HOST"
+    smtp_port_env: str = "SMTP_PORT"
+    smtp_user_env: str = "SMTP_USER"
+    smtp_pass_env: str = "SMTP_PASS"
+    smtp_security_env: str = "SMTP_SECURITY"  # starttls (port 587) | ssl (port 465)
+    from_address_env: str = "EMAIL_FROM_ADDRESS"
 
 
 class LoggingConfig(_Strict):
@@ -122,6 +144,7 @@ class Settings(_Strict):
     llm: LLMConfig
     stage3: Stage3Config = Stage3Config()
     storage: StorageConfig = StorageConfig()
+    email: EmailConfig = EmailConfig()
     logging: LoggingConfig = LoggingConfig()
 
 
@@ -226,8 +249,9 @@ def _load_model(path: Path, model: type[BaseModel]):
 
 
 def load_config(data_dir: Path | None = None, settings_file: Path | None = None,
-                storage: StorageBackend | None = None) -> AppConfig:
-    """`storage` (e.g. from --storage) wins over the STORAGE_BACKEND env var, which wins over settings.yaml."""
+                storage: StorageBackend | None = None, email: str | None = None) -> AppConfig:
+    """`storage` / `email` (from --storage / --email) win over the STORAGE_BACKEND / EMAIL_MODE env vars,
+    which win over settings.yaml."""
     load_dotenv(PROJECT_ROOT / ".env")
     settings = _load_model(settings_file or CONFIG_DIR / "settings.yaml", Settings)
     backend = storage or os.environ.get(STORAGE_ENV, "").strip() or None
@@ -236,5 +260,10 @@ def load_config(data_dir: Path | None = None, settings_file: Path | None = None,
             raise ConfigError(f"storage backend must be 'file' or 'mongodb' (got {backend!r})")
         settings = settings.model_copy(
             update={"storage": settings.storage.model_copy(update={"backend": backend})})
+    email_mode = email or os.environ.get(EMAIL_MODE_ENV, "").strip()
+    if email_mode:
+        if email_mode not in ("smtp", "outbox"):
+            raise ConfigError(f"{EMAIL_MODE_ENV} must be 'smtp' or 'outbox' (got {email_mode!r})")
+        settings = settings.model_copy(update={"email": settings.email.model_copy(update={"mode": email_mode})})
     data = build_data_paths(data_dir or DEFAULT_DATA_DIR, settings.paths.model_dump())
     return AppConfig(settings, data)

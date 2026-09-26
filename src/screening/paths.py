@@ -9,6 +9,7 @@ PROJECT_ROOT = Path(__file__).resolve().parents[2]
 CONFIG_DIR = PROJECT_ROOT / "config"
 PROMPTS_DIR = PROJECT_ROOT / "prompts"
 SCHEMAS_DIR = PROJECT_ROOT / "schemas"
+TEMPLATES_DIR = PROJECT_ROOT / "templates"
 DEFAULT_DATA_DIR = PROJECT_ROOT / "data"
 
 

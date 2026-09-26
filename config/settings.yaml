@@ -41,12 +41,27 @@ stage3:
   # In-house screening agent (browser voice / text). Links look like <public_base_url>/interview/<token>.
   # Mic access needs a secure origin: localhost works; for other machines use an HTTPS URL (e.g. a tunnel).
   public_base_url: http://127.0.0.1:8765
-  invite_ttl_days: 7
+  invite_ttl_days: 3              # the link in the invite email stops working after this
   max_followups_per_question: 1   # agent may ask at most this many clarifying follow-ups per question
   max_candidate_turns: 40         # hard stop for runaway conversations
   max_turn_chars: 2000            # longer candidate messages are truncated
   speech_lang: en-IN              # speech recognition + voice language (e.g. en-US, en-GB)
   agent_temperature: 0.4          # a little variety in the spoken replies (parsing stays at llm.temperature)
+  verify_email: true              # candidate enters a one-time code sent to their resume email before the call
+  otp_length: 6
+  otp_expiry_minutes: 10
+  otp_max_attempts: 5
+  otp_resend_seconds: 30
+
+email:
+  # smtp:   send for real via SMTP_* in .env (Gmail: SMTP_USER = your address, SMTP_PASS = 16-char app password)
+  # outbox: write every email to <data>/outbox/*.eml instead of sending (dry run). Override with --email.
+  mode: smtp
+  from_name: Talent Team
+  send_invites: true              # `screening call` emails each new interview link (QR code + button)
+  reminder_after_hours: 24        # remind candidates who haven't started their call...
+  max_reminders: 1                # ...at most this many times
+  auto_reminders: true            # `screening serve` checks for due reminders every 10 minutes
 
 storage:
   # mongodb (default): candidates, stage records, transcripts, invites and failures live in MongoDB

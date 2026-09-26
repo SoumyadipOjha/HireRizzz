@@ -171,6 +171,7 @@ def test_invites_lifecycle(ctx):
 
 @pytest.fixture
 def live(ctx):
+    ctx.config.settings.stage3.verify_email = False  # the code step has its own tests (test_email.py)
     ingest(ctx)
     run_stage1(ctx, FakeLLM())
     run_stage2(ctx, FakeLLM())
@@ -205,7 +206,8 @@ def test_interview_over_http(live):
     _, _, info = _call(f"{base}/api/interview/{token}/info")
     assert info == {"first_name": "Aarav", "job_title": ctx.config.job.title,
                     "company_name": ctx.config.job.company_name, "speech_lang": "en-IN",
-                    "questions": len(ctx.config.questions.questions)}  # nothing else leaks
+                    "questions": len(ctx.config.questions.questions),
+                    "verification_required": False, "email_hint": None}  # nothing else leaks
 
     _, _, r = _call(f"{base}/api/interview/{token}/start", {"channel": "browser_voice"})
     sid = r["session_id"]
