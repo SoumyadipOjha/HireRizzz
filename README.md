@@ -35,5 +35,6 @@ uv run pytest
    environment variable `HIRERIZZ_API_URL` = the Render URL. Note the URL, e.g. `https://hirerizz.vercel.app`.
 4. Back on Render, set `CORS_ORIGINS` and `PUBLIC_BASE_URL` to the Vercel URL and redeploy.
 
-The dashboard has **no login** (`DASHBOARD_PUBLIC=true`): anyone with the Vercel URL can see candidates
-and approve or reject them. Use test data, or set `DASHBOARD_PUBLIC=false` to keep it local-only.
+The dashboard needs a **sign-in**: one account, defaults in `backend/src/screening/dashboard/auth.py`.
+Set `DASHBOARD_USERNAME` / `DASHBOARD_PASSWORD` on Render to change them (that signs everyone out).
+Every decision is recorded under the signed-in account. Candidates' interview links need no login.

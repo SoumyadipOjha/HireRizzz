@@ -15,6 +15,7 @@ import os
 import json
 import re
 import threading
+import time
 import webbrowser
 from functools import partial
 from http import HTTPStatus
@@ -24,6 +25,7 @@ from urllib.parse import parse_qs, urlparse
 
 from ..agent.invites import TOKEN_RE, InviteError, InviteStore
 from ..agent.verification import VerificationError
+from . import auth
 from ..config import AppConfig, ConfigError
 from ..docx_reader import DocxReadError
 from ..paths import PROJECT_ROOT
@@ -520,6 +522,23 @@ class Handler(BaseHTTPRequestHandler):
     def _dashboard_allowed(self) -> bool:
         return dashboard_public() or self._is_loopback()
 
+    def _session_user(self) -> str | None:
+        """Who is signed in (Authorization: Bearer <token>). With the login off: "" (anyone)."""
+        if not auth.auth_enabled():
+            return ""
+        h = self.headers.get("Authorization") or ""
+        return auth.verify_token(h[7:].strip()) if h[:7].lower() == "bearer " else None
+
+    def _login(self) -> None:
+        if not self._same_origin_json():
+            return self._json({"error": "forbidden"}, HTTPStatus.FORBIDDEN)
+        body = self._body()
+        user = auth.check_login(body.get("username"), body.get("password"))
+        if user is None:
+            time.sleep(1)  # slows down password guessing
+            return self._json({"error": "Wrong username or password."}, HTTPStatus.UNAUTHORIZED)
+        return self._json({"token": auth.make_token(user), "user": user})
+
     def _allowed_origin(self) -> str | None:
         origin = (self.headers.get("Origin") or "").rstrip("/")
         return origin if origin and origin_allowed(origin) else None
@@ -602,6 +621,12 @@ class Handler(BaseHTTPRequestHandler):
                 return self._json({"error": "not found"}, HTTPStatus.NOT_FOUND)
             if path in ("/", "/index.html"):
                 return self._page("index.html")
+            if path.startswith("/api/"):  # the app's pages load freely (they show the login); the data doesn't
+                user = self._session_user()
+                if user is None:
+                    return self._json({"error": "Please sign in."}, HTTPStatus.UNAUTHORIZED)
+                if path == "/api/me":
+                    return self._json({"user": user or None, "login": auth.auth_enabled()})
             q = {k: v[0] for k, v in parse_qs(url.query).items()}
             job_q = q.get("job") or None
             if path == "/api/overview":
@@ -642,6 +667,10 @@ class Handler(BaseHTTPRequestHandler):
         try:
             if m := _INTERVIEW_API.match(path):
                 return self._interview(m.group(1), m.group(2), method="POST")
+            if path == "/api/login":
+                if not self._dashboard_allowed():
+                    return self._json({"error": "not found"}, HTTPStatus.NOT_FOUND)
+                return self._login()
             if path in ("/api/approve/shortlist", "/api/approve/final", "/api/send-results", "/api/jd/draft",
                         "/api/jd/approve", "/api/jobs", "/api/resumes") or _LINKEDIN_API.match(path) \
                     or _CLEAR_FRAUD_API.match(path) or _CLARIFY_API.match(path) or _JOB_STATUS_API.match(path):
@@ -657,7 +686,7 @@ class Handler(BaseHTTPRequestHandler):
         self.send_response(HTTPStatus.NO_CONTENT)
         self.send_header("Access-Control-Allow-Origin", self._allowed_origin())
         self.send_header("Access-Control-Allow-Methods", "GET, POST, OPTIONS")
-        self.send_header("Access-Control-Allow-Headers", "Content-Type")
+        self.send_header("Access-Control-Allow-Headers", "Content-Type, Authorization")
         self.send_header("Access-Control-Max-Age", "600")
         self.send_header("Vary", "Origin")
         self.send_header("Content-Length", "0")
@@ -682,8 +711,13 @@ class Handler(BaseHTTPRequestHandler):
             return self._json({"error": "not found"}, HTTPStatus.NOT_FOUND)
         if not self._same_origin_json():
             return self._json({"error": "forbidden"}, HTTPStatus.FORBIDDEN)
+        user = self._session_user()
+        if user is None:
+            return self._json({"error": "Please sign in."}, HTTPStatus.UNAUTHORIZED)
         try:
             body = self._body(MAX_UPLOAD_BODY if path == "/api/resumes" or _LINKEDIN_API.match(path) else MAX_BODY)
+            if user:  # decisions are recorded under the signed-in account, whatever the page sends
+                body["by"] = user
             if m := _LINKEDIN_API.match(path):
                 return self._json(self.api.upload_linkedin(m.group(1), body))
             if m := _CLEAR_FRAUD_API.match(path):

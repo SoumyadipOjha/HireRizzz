@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useRef, useState, useSyncExternalStore } from "react";
+import { getSession, onSession } from "./api.js";
 
 // ---------------------------------------------------------------- board
 
@@ -133,33 +134,10 @@ export function usePoll(fn, ms, deps = []) {
   return { ...state, reload };
 }
 
-// "Approving as": the reviewer's name, kept in this browser (same key as the old dashboard).
-const APPROVER_KEY = "approver";
-const approverListeners = new Set();
-function readApprover() {
-  try {
-    return localStorage.getItem(APPROVER_KEY) || "";
-  } catch {
-    return "";
-  }
+// The signed-in user: every decision is recorded under their name.
+export function useSessionUser() {
+  return useSyncExternalStore(onSession, () => getSession().user);
 }
-let approverValue = readApprover();
-export function setApprover(v) {
-  approverValue = v.slice(0, 80);
-  try {
-    localStorage.setItem(APPROVER_KEY, approverValue);
-  } catch {
-    /* private mode */
-  }
-  approverListeners.forEach((l) => l());
-}
-export function useApprover() {
-  return useSyncExternalStore(
-    (l) => (approverListeners.add(l), () => approverListeners.delete(l)),
-    () => approverValue,
-  );
-}
-export const getApprover = () => approverValue.trim();
 
 // ---------------------------------------------------------------- toasts
 
@@ -179,15 +157,9 @@ export function useToasts() {
   return useSyncExternalStore((l) => (toastListeners.add(l), () => toastListeners.delete(l)), () => toasts);
 }
 
-/** The reviewer's name, or null after asking them to fill in "Approving as". */
+/** Who is deciding (the signed-in account; the server records it the same way). */
 export function requireApprover() {
-  const by = getApprover();
-  if (!by) {
-    toast("Enter your name in “Approving as” (top right) first.", "error");
-    window.dispatchEvent(new Event("hirerizz:focus-approver"));
-    return null;
-  }
-  return by;
+  return getSession().user || "you";
 }
 
 // ---------------------------------------------------------------- routing (tiny, history API)

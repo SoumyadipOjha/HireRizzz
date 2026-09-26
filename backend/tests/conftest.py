@@ -12,6 +12,7 @@ import pytest
 # and never send real email: messages go to <data>/outbox as .eml files.
 os.environ["STORAGE_BACKEND"] = "file"
 os.environ["EMAIL_MODE"] = "outbox"
+os.environ["DASHBOARD_AUTH"] = "off"  # the login has its own tests (test_auth.py)
 
 from screening.config import load_config
 from screening.context import RunContext

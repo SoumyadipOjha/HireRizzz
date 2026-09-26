@@ -58,7 +58,7 @@ export default function ResultsModal({ jobId, overview, onClose, onChanged, onOp
       onClose={onClose}
       extra={
         <div className="row">
-          <a className="btn sm" href={api.resultsCsvUrl(jobId)}>Download CSV</a>
+          <button className="btn sm" onClick={() => api.downloadResultsCsv(jobId).catch((e) => toast(`Download failed: ${e.message}`, "error"))}>Download CSV</button>
           <button className="btn sm primary" disabled={!unsent.length || sending} onClick={send}>
             {sending ? <><Spinner /> Sending…</> : unsent.length ? `Email ${unsent.length} result(s)` : "All results emailed"}
           </button>

@@ -34,5 +34,5 @@ services:
         sync: false
       - key: PUBLIC_BASE_URL        # same Vercel URL: interview links in emails point there
         sync: false
-      - key: DASHBOARD_PUBLIC       # no login: anyone with the dashboard URL can see and approve candidates
+      - key: DASHBOARD_PUBLIC       # the dashboard answers from the internet (behind the login)
         value: "true"
