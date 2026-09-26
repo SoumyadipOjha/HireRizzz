@@ -109,27 +109,6 @@ export function Donut({ segments, size = 190, thickness = 24, centerLabel = "tot
   );
 }
 
-// ------------------------------------------------------------------ horizontal funnel bars
-
-export function FunnelBars({ rows, onSelect }) {
-  const mounted = useMounted(150);
-  const max = Math.max(1, ...rows.map((r) => r.value));
-  const total = rows.reduce((s, r) => s + r.value, 0);
-  return (
-    <div className="hbars">
-      {rows.map((r, i) => (
-        <button key={r.key} className="hbar" onClick={() => onSelect?.(r)} style={{ "--i": i }}>
-          <span className="hbar-label">{r.label}</span>
-          <span className="hbar-track">
-            <span className="hbar-fill" style={{ width: mounted ? `${Math.max(r.value ? 4 : 0, (r.value / max) * 100)}%` : 0, background: r.color }} />
-          </span>
-          <span className="hbar-val"><b>{r.value}</b>{total ? <em>{Math.round((r.value / total) * 100)}%</em> : null}</span>
-        </button>
-      ))}
-    </div>
-  );
-}
-
 // ------------------------------------------------------------------ vertical bars (histogram / activity)
 
 export function ColumnChart({ bars, height = 170, marker, series = [{ key: "value", color: "url(#colgrad)" }], labelEvery = 1 }) {

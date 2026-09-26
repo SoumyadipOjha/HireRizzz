@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
-import { COLUMNS, label, navigate } from "../lib.js";
-import { ColumnChart, CountUp, Donut, FunnelBars, Gauge } from "./Charts.jsx";
+import { label, navigate } from "../lib.js";
+import { ColumnChart, CountUp, Donut, Gauge } from "./Charts.jsx";
 
 export const COL_COLOR = {
   applied: "#94a3b8", resume_review: "#6d5efc", interview: "#0ea5e9", final_review: "#a855f7",
@@ -47,12 +47,6 @@ export default function Insights({ data, onPost }) {
     { key: "fraud", label: "Fraud stopped", value: data.columns.fraud, color: COL_COLOR.fraud },
   ];
 
-  const bins = useMemo(() => {
-    const b = Array.from({ length: 10 }, (_, i) => ({ label: `${i * 10}`, value: 0, lo: i * 10 }));
-    data.resume_scores.forEach((s) => (b[Math.min(9, Math.floor(s / 10))].value += 1));
-    return b.map((x) => ({ ...x, tip: `Score ${x.lo}–${x.lo + (x.lo === 90 ? 10 : 9)}: ${x.value} candidate${x.value === 1 ? "" : "s"}` }));
-  }, [data.resume_scores]);
-
   const days = data.daily.map((d) => {
     const dt = new Date(`${d.date}T00:00:00`);
     const l = dt.toLocaleDateString(undefined, { day: "numeric", month: "short" });
@@ -92,37 +86,26 @@ export default function Insights({ data, onPost }) {
       <div className="chart-grid">
         <div className="card chart-card fade-up" style={{ "--i": 2 }}>
           <div className="chart-head"><h3>Outcomes</h3><span className="faint small">hover a slice</span></div>
-          <Donut segments={outcomes} centerLabel="candidates" onSelect={openBoard} />
+          <div className="chart-body"><Donut segments={outcomes} size={170} thickness={22} centerLabel="candidates" onSelect={openBoard} /></div>
         </div>
 
         <div className="card chart-card fade-up" style={{ "--i": 3 }}>
-          <div className="chart-head"><h3>Pipeline</h3><span className="faint small">where everyone is now</span></div>
-          <FunnelBars rows={COLUMNS.map((c) => ({ key: c.key, label: c.label, value: data.columns[c.key], color: COL_COLOR[c.key] }))} onSelect={openBoard} />
-        </div>
-
-        <div className="card chart-card fade-up" style={{ "--i": 4 }}>
           <div className="chart-head"><h3>AI × human agreement</h3><span className="faint small">{data.ai.decisions} decisions</span></div>
-          <Gauge value={agree} label="agreed with the AI"
-            sub={data.ai.decisions ? `${data.ai.overrides} override${data.ai.overrides === 1 ? "" : "s"}: people stay in charge` : "No decisions yet"} />
-        </div>
-
-        <div className="card chart-card wide fade-up" style={{ "--i": 5 }}>
-          <div className="chart-head">
-            <h3>Resume score spread</h3>
-            <span className="faint small">{data.resume_scores.length} scored · pass mark {data.pass_marks.resume}</span>
+          <div className="chart-body">
+            <Gauge value={agree} label="agreed with the AI"
+              sub={data.ai.decisions ? `${data.ai.overrides} override${data.ai.overrides === 1 ? "" : "s"}: people stay in charge` : "No decisions yet"} />
           </div>
-          <ColumnChart bars={bins} marker={data.pass_marks.resume} />
         </div>
 
-        <div className="card chart-card wide fade-up" style={{ "--i": 6 }}>
+        <Facts data={data} />
+
+        <div className="card chart-card full fade-up" style={{ "--i": 5 }}>
           <div className="chart-head">
             <h3>Last 14 days</h3>
             <span className="legend-inline"><i style={{ background: "#7c6cf8" }} /> applied <i style={{ background: "#ec4899" }} /> decisions</span>
           </div>
-          <ColumnChart bars={days} labelEvery={2} series={[{ key: "applied", color: "url(#colgrad)" }, { key: "decided", color: "url(#colgrad2)" }]} />
+          <ColumnChart bars={days} height={130} series={[{ key: "applied", color: "url(#colgrad)" }, { key: "decided", color: "url(#colgrad2)" }]} />
         </div>
-
-        <Facts data={data} />
       </div>
     </section>
   );
