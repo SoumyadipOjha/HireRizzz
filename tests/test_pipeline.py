@@ -88,7 +88,7 @@ def test_full_pipeline(ctx, data_dir):
 
     # Transcript parser for a call held elsewhere
     out = parse_local_transcript(ctx, llm, aarav.candidate_id, SAMPLES / "transcripts" / "aarav_sharma_call.txt")
-    rec3 = Stage3Record.model_validate_json(out.read_text())
+    rec3 = Stage3Record.model_validate(ctx.config.store.get_record(out))
     assert rec3.candidate_id == aarav.candidate_id and rec3.call.channel == "local_transcript_file"
     ids = [a.question_id for a in rec3.screening.answers]
     assert ids == [q.id for q in ctx.config.questions.questions]  # one per configured question, unknown dropped

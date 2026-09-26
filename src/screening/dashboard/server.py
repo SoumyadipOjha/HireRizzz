@@ -23,7 +23,6 @@ from urllib.parse import parse_qs, urlparse
 
 from ..agent.invites import TOKEN_RE, InviteError, InviteStore
 from ..config import AppConfig, ConfigError
-from ..paths import resolve_stored
 from ..schemas import STAGES
 
 STATIC = Path(__file__).parent / "static"
@@ -35,32 +34,20 @@ _CSP = ("default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self'
         "connect-src 'self'; img-src 'self' data:; frame-ancestors 'none'; base-uri 'none'; form-action 'none'")
 
 
-def _read_json(path: Path):
-    try:
-        return json.loads(path.read_text(encoding="utf-8"))
-    except (OSError, ValueError):
-        return None
-
-
 class DashboardAPI:
     def __init__(self, config: AppConfig):
         self.config = config
-        self.invites = InviteStore(config.data.stage3_invites)
+        self.store = config.store
+        self.invites = InviteStore(self.store)
 
     def _index(self) -> dict:
-        return _read_json(self.config.data.candidates_index) or {"candidates": {}, "updated_at": None}
+        try:
+            return self.store.load_index() or {"candidates": {}, "updated_at": None}
+        except ValueError:  # a half-written/corrupt index file: show an empty page, not an error
+            return {"candidates": {}, "updated_at": None}
 
     def _failures(self) -> list[dict]:
-        p = self.config.data.failures_log
-        if not p.exists():
-            return []
-        out = []
-        for line in p.read_text(encoding="utf-8").splitlines():
-            try:
-                out.append(json.loads(line))
-            except ValueError:
-                continue
-        return out[::-1]  # newest first
+        return self.store.failures()[::-1]  # newest first
 
     def overview(self) -> dict:
         cfg, data = self.config, self.config.data
@@ -83,6 +70,7 @@ class DashboardAPI:
             "weights": cfg.settings.scoring.weights,
             "llm": {"provider": cfg.settings.llm.provider, "model": cfg.settings.llm.model},
             "data_dir": data.root.as_posix(),
+            "storage": self.store.describe(),
             "demo": (data.root / DEMO_MARKER).exists(),
             "stages": list(STAGES),
             "failure_count": len(self._failures()),
@@ -96,15 +84,12 @@ class DashboardAPI:
             return None
         records = {}
         for stage in STAGES:
-            out = entry["stages"][stage].get("output_path")
-            records[stage] = _read_json(resolve_stored(out)) if out else None
+            out = entry["stages"].get(stage, {}).get("output_path")
+            records[stage] = self.store.get_record(out) if out else None
         transcript = None
         s3 = records.get("stage3_calling")
         if s3 and s3.get("transcript_path"):
-            try:
-                transcript = resolve_stored(s3["transcript_path"]).read_text(encoding="utf-8")
-            except OSError:
-                transcript = None
+            transcript = self.store.get_text(s3["transcript_path"])
         try:
             inv = self.invites.active_for(cid)
         except (OSError, ValueError):
@@ -259,7 +244,7 @@ def serve(config: AppConfig, port: int = 8765, open_browser: bool = True, host: 
     interviews = InterviewService(ctx, llm_factory=lambda: make_client(config))
     httpd = ThreadingHTTPServer((host, port), partial(Handler, api=DashboardAPI(config), interviews=interviews))
     url = f"http://127.0.0.1:{port}/"
-    print(f"Dashboard:  {url}   (data: {config.data.root})", flush=True)
+    print(f"Dashboard:  {url}   (storage: {config.store.describe()})", flush=True)
     print(f"Interviews: {config.settings.stage3.public_base_url}/interview/<token>   — Ctrl+C to stop", flush=True)
     if host not in ("127.0.0.1", "localhost", "::1"):
         print(f"Listening on {host}:{port}. The dashboard still answers loopback clients only.", flush=True)

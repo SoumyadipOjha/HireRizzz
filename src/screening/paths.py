@@ -25,6 +25,7 @@ class DataPaths:
     stage3_transcripts: Path
     stage3_sessions: Path
     stage3_invites: Path
+    stage4_output: Path
     logs: Path
 
     @property
@@ -43,6 +44,7 @@ class DataPaths:
             self.stage3_output,
             self.stage3_transcripts,
             self.stage3_sessions,
+            self.stage4_output,
             self.logs,
         ):
             p.mkdir(parents=True, exist_ok=True)

@@ -1,4 +1,4 @@
-"""Private interview links: data/stage3_calls/invites.json.
+"""Private interview links (data/stage3_calls/invites.json or the MongoDB `invites` collection).
 
 A token is an unguessable secret (secrets.token_urlsafe) that maps to one
 candidate_id. Only the token appears in the URL — never the candidate_id or
@@ -8,18 +8,16 @@ revokes the old one.
 
 from __future__ import annotations
 
-import json
 import re
 import secrets
 import threading
 from datetime import datetime, timedelta, timezone
-from pathlib import Path
 from typing import Literal
 
 from pydantic import BaseModel, ConfigDict
 
-from ..index import write_json_atomic
 from ..schemas import utc_now
+from ..storage import Store
 
 InviteStatus = Literal["active", "used", "revoked"]
 TOKEN_RE = re.compile(r"^[A-Za-z0-9_-]{32,64}$")
@@ -44,19 +42,15 @@ class Invite(BaseModel):
 
 
 class InviteStore:
-    def __init__(self, path: Path):
-        self.path = path
+    def __init__(self, store: Store):
+        self.store = store
         self._lock = threading.Lock()
 
     def _load(self) -> dict[str, Invite]:
-        if not self.path.exists():
-            return {}
-        raw = json.loads(self.path.read_text(encoding="utf-8"))
-        return {t: Invite.model_validate(v) for t, v in raw.get("invites", {}).items()}
+        return {t: Invite.model_validate(v) for t, v in self.store.load_invites().items()}
 
-    def _save(self, invites: dict[str, Invite]) -> None:
-        write_json_atomic(self.path, {"updated_at": utc_now(),
-                                      "invites": {t: i.model_dump() for t, i in invites.items()}})
+    def _save(self, invites: dict[str, Invite], changed: list[str]) -> None:
+        self.store.save_invites({t: i.model_dump() for t, i in invites.items()}, changed)
 
     def active_for(self, candidate_id: str) -> Invite | None:
         with self._lock:
@@ -67,14 +61,16 @@ class InviteStore:
         with self._lock:
             invites = self._load()
             now = datetime.now(timezone.utc)
-            for inv in invites.values():
+            changed = []
+            for t, inv in invites.items():
                 if inv.candidate_id == candidate_id and inv.status == "active":
                     inv.status, inv.updated_at = "revoked", utc_now()
+                    changed.append(t)
             token = secrets.token_urlsafe(24)  # 32 chars, ~192 bits
             inv = Invite(token=token, candidate_id=candidate_id, created_at=now.isoformat(timespec="seconds"),
                          expires_at=(now + timedelta(days=ttl_days)).isoformat(timespec="seconds"))
             invites[token] = inv
-            self._save(invites)
+            self._save(invites, changed + [token])
             return inv
 
     def validate(self, token: str) -> Invite:
@@ -101,4 +97,4 @@ class InviteStore:
             if add_session and add_session not in inv.sessions:
                 inv.sessions.append(add_session)
             inv.updated_at = utc_now()
-            self._save(invites)
+            self._save(invites, [token])

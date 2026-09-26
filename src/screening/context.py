@@ -8,7 +8,7 @@ from dataclasses import dataclass, field
 
 from .config import AppConfig
 from .index import CandidateIndex
-from .logging_setup import append_failure, setup_logging
+from .logging_setup import failure_line, setup_logging
 from .schemas import CandidateEntry, StageName
 
 
@@ -39,7 +39,7 @@ class RunContext:
         config.data.ensure()
         lc = config.settings.logging
         logger = setup_logging(config.data.pipeline_log, run_id, lc.console_level, lc.file_level)
-        index = CandidateIndex(config.data.candidates_index)
+        index = CandidateIndex(config.store)
         return cls(config=config, index=index, logger=logger, run_id=run_id)
 
     def fail(self, stage: StageName, entry: CandidateEntry, error: BaseException) -> None:
@@ -47,8 +47,8 @@ class RunContext:
         msg = f"{type(error).__name__}: {error}"
         self.logger.error("%s FAILED candidate_id=%s file=%s :: %s", stage, entry.candidate_id, entry.source_file, msg)
         self.logger.debug("traceback for candidate_id=%s", entry.candidate_id, exc_info=error)
-        append_failure(self.config.data.failures_log, run_id=self.run_id, stage=stage,
-                       candidate_id=entry.candidate_id, source_file=entry.source_file, error=error)
+        self.config.store.add_failure(failure_line(run_id=self.run_id, stage=stage, candidate_id=entry.candidate_id,
+                                                   source_file=entry.source_file, error=error))
         self.index.set_stage(entry.candidate_id, stage, "failed", run_id=self.run_id, error=msg[:2000])
 
     def skip(self, stage: StageName, entry: CandidateEntry, reason: str) -> None:

@@ -6,10 +6,9 @@ import json
 
 from .config import CRITERIA, JobDescription, Settings
 from .context import RunContext, StageSummary
-from .index import write_json_atomic
 from .llm import LLMClient
-from .paths import resolve_stored
 from .prompts import load_prompt
+from .storage import Store, load_model
 from .schemas import CriterionResult, LLMInfo, ResumeExtractionLLM, ShortlistAssessmentLLM, Stage1Record, Stage2Record
 
 STAGE = "stage2_shortlisting"
@@ -72,9 +71,9 @@ def decide(assessment: ShortlistAssessmentLLM, settings: Settings, missing_must:
     return criteria, overall, decision, reasons
 
 
-def load_stage1(entry) -> Stage1Record:
+def load_stage1(entry, store: Store) -> Stage1Record:
     st = entry.stages[UPSTREAM]
-    record = Stage1Record.model_validate_json(resolve_stored(st.output_path).read_text(encoding="utf-8"))
+    record = load_model(store, st.output_path, Stage1Record)
     if record.candidate_id != entry.candidate_id:
         raise JoinKeyMismatchError(f"{st.output_path} has candidate_id {record.candidate_id}")
     return record
@@ -116,7 +115,7 @@ def run_stage2(ctx: RunContext, llm: LLMClient, *, force: bool = False,
 
         log.info("%s: candidate_id=%s (%s)", STAGE, cid, entry.display_name)
         try:
-            s1 = load_stage1(entry)
+            s1 = load_stage1(entry, ctx.config.store)
             prompt = template.render(candidate_profile=blind_profile(s1.extraction), **job_fields)
             assessment = llm.generate_json(system=system.text, prompt=prompt, schema=ShortlistAssessmentLLM)
 
@@ -137,9 +136,8 @@ def run_stage2(ctx: RunContext, llm: LLMClient, *, force: bool = False,
                 require_all_must_have=settings.thresholds.require_all_must_have,
                 decision=decision, decision_reasons=reasons, rationale=assessment.rationale,
             )
-            out = ctx.config.data.stage2_output / f"{cid}.json"
-            write_json_atomic(out, record.model_dump(mode="json"))
-            ctx.index.set_stage(cid, STAGE, "success", run_id=ctx.run_id, output_path=ctx.config.data.rel(out),
+            ref = ctx.config.store.put_record("stage2_shortlist", cid, record.model_dump(mode="json"))
+            ctx.index.set_stage(cid, STAGE, "success", run_id=ctx.run_id, output_path=ref,
                                 decision=decision, score=overall)
             log.info("%s: candidate_id=%s %s score=%s (%s)", STAGE, cid, decision.upper(), overall, "; ".join(reasons))
             summary.succeeded.append(cid)

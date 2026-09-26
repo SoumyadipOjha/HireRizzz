@@ -1,15 +1,13 @@
-"""candidates_index.json — the master join table keyed by candidate_id (spec §3)."""
+"""The candidates index — the master join table keyed by candidate_id (spec §3).
+Stored as candidates_index.json or as the MongoDB `candidates` collection."""
 
 from __future__ import annotations
 
-import json
-import os
-import tempfile
 import uuid
-from pathlib import Path
 
 from pydantic import ValidationError
 
+from .storage import Store, write_json_atomic  # noqa: F401  (write_json_atomic re-exported for callers)
 from .schemas import (
     STAGES,
     CandidateEntry,
@@ -25,41 +23,29 @@ class CandidateIndexError(Exception):
     """candidates_index.json is unreadable or invalid."""
 
 
-def write_json_atomic(path: Path, data: dict) -> None:
-    path.parent.mkdir(parents=True, exist_ok=True)
-    fd, tmp = tempfile.mkstemp(dir=path.parent, prefix=f".{path.name}.", suffix=".tmp")
-    try:
-        with os.fdopen(fd, "w", encoding="utf-8") as f:
-            json.dump(data, f, indent=2, ensure_ascii=False)
-            f.write("\n")
-        os.replace(tmp, path)
-    except BaseException:
-        Path(tmp).unlink(missing_ok=True)
-        raise
-
-
 class CandidateIndex:
-    def __init__(self, path: Path):
-        self.path = path
+    def __init__(self, store: Store):
+        self.store = store
         self.doc = self._load()
 
     def _load(self) -> CandidatesIndexDoc:
-        if not self.path.exists():
-            return CandidatesIndexDoc()
         try:
-            return CandidatesIndexDoc.model_validate_json(self.path.read_text(encoding="utf-8"))
+            raw = self.store.load_index()
+            return CandidatesIndexDoc() if raw is None else CandidatesIndexDoc.model_validate(raw)
         except (ValidationError, ValueError) as e:
             # Never overwrite a corrupt index: that would silently lose candidates.
-            raise CandidateIndexError(f"{self.path} is invalid; fix or move it aside before re-running:\n{e}") from e
+            raise CandidateIndexError(f"candidate index in {self.store.describe()} is invalid; "
+                                      f"fix or move it aside before re-running:\n{e}") from e
 
     def reload(self) -> "CandidateIndex":
-        """Re-read from disk (the server is long-lived; the CLI may have changed the index meanwhile)."""
+        """Re-read from storage (the server is long-lived; the CLI may have changed the index meanwhile)."""
         self.doc = self._load()
         return self
 
-    def save(self) -> None:
+    def save(self, changed: str | None = None) -> None:
+        """Persist; `changed` = the one candidate_id that changed (lets MongoDB write a single document)."""
         self.doc.updated_at = utc_now()
-        write_json_atomic(self.path, self.doc.model_dump(mode="json"))
+        self.store.save_index(self.doc.model_dump(mode="json"), [changed] if changed else None)
 
     # -- queries -----------------------------------------------------------
 
@@ -86,7 +72,7 @@ class CandidateIndex:
         entry = CandidateEntry(candidate_id=cid, source_file=source_file, source_sha256=sha256,
                                ingested_at=now, updated_at=now)
         self.doc.candidates[cid] = entry
-        self.save()
+        self.save(cid)
         return entry
 
     def reset(self, candidate_id: str, sha256: str) -> CandidateEntry:
@@ -97,7 +83,7 @@ class CandidateIndex:
         entry.display_name = None
         entry.updated_at = utc_now()
         _recompute(entry)
-        self.save()
+        self.save(candidate_id)
         return entry
 
     def set_stage(self, candidate_id: str, stage: StageName, status: StageStatus, *, run_id: str,
@@ -117,7 +103,7 @@ class CandidateIndex:
             entry.display_name = display_name
         entry.updated_at = now
         _recompute(entry)
-        self.save()
+        self.save(candidate_id)
         return entry
 
 

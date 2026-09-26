@@ -1,8 +1,7 @@
-"""Logging: console + data/logs/pipeline.log, plus the failures.jsonl writer."""
+"""Logging: console + data/logs/pipeline.log, plus the failure-record builder."""
 
 from __future__ import annotations
 
-import json
 import logging
 import sys
 from datetime import datetime, timezone
@@ -49,11 +48,10 @@ def get_logger() -> logging.Logger:
     return logging.getLogger(LOGGER_NAME)
 
 
-def append_failure(failures_file: Path, *, run_id: str, stage: str, candidate_id: str,
-                   source_file: str | None, error: BaseException) -> None:
-    """One JSON line per failed/skipped candidate-stage (spec §6)."""
-    failures_file.parent.mkdir(parents=True, exist_ok=True)
-    line = {
+def failure_line(*, run_id: str, stage: str, candidate_id: str, source_file: str | None,
+                 error: BaseException) -> dict:
+    """One record per failed candidate-stage (spec §6); stored via Store.add_failure."""
+    return {
         "ts": datetime.now(timezone.utc).isoformat(timespec="seconds"),
         "run_id": run_id,
         "stage": stage,
@@ -62,5 +60,3 @@ def append_failure(failures_file: Path, *, run_id: str, stage: str, candidate_id
         "error_type": type(error).__name__,
         "error": str(error),
     }
-    with failures_file.open("a", encoding="utf-8") as f:
-        f.write(json.dumps(line, ensure_ascii=False) + "\n")

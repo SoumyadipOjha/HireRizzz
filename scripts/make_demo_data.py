@@ -257,7 +257,7 @@ def main() -> None:
         "Synthetic demo data produced by scripts/make_demo_data.py with a scripted fake LLM (not Gemini).\n",
         encoding="utf-8")
 
-    ctx = RunContext.create(load_config(data_dir=DEMO))
+    ctx = RunContext.create(load_config(data_dir=DEMO, storage="file"))
     llm = DemoLLM()
     ingest(ctx)
     run_stage1(ctx, llm)

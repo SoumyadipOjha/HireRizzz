@@ -145,8 +145,9 @@ def test_state_roundtrip(ctx):
 # ---------------------------------------------------------------- invites
 
 
-def test_invites_lifecycle(tmp_path):
-    store = InviteStore(tmp_path / "invites.json")
+def test_invites_lifecycle(ctx):
+    store = InviteStore(ctx.config.store)
+    path = ctx.config.data.stage3_invites
     a = store.create("cand-1", ttl_days=7)
     assert store.validate(a.token).candidate_id == "cand-1"
     b = store.create("cand-1", ttl_days=7)  # new link revokes the old one
@@ -158,9 +159,9 @@ def test_invites_lifecycle(tmp_path):
     with pytest.raises(InviteError, match="invalid"):
         store.validate("../../etc/passwd")
     c = store.create("cand-2", ttl_days=1)
-    raw = json.loads((tmp_path / "invites.json").read_text())
+    raw = json.loads(path.read_text())
     raw["invites"][c.token]["expires_at"] = "2000-01-01T00:00:00+00:00"
-    (tmp_path / "invites.json").write_text(json.dumps(raw))
+    path.write_text(json.dumps(raw))
     with pytest.raises(InviteError, match="expired"):
         store.validate(c.token)
 

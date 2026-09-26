@@ -24,6 +24,18 @@ copy .env.example .env      # then put your free key from https://aistudio.googl
 uv run screening check-llm  # verifies the key and that llm.model exists
 ```
 
+## Storage (MongoDB by default)
+
+Candidates, stage records, transcripts, interview links and failures are stored in
+MongoDB (`storage.backend: mongodb` in `config/settings.yaml`). Set `MONGODB_URI`
+and `MONGODB_DB_NAME` in `.env`; without them the local server
+`mongodb://localhost:27017` and database `recruiting_screening` are used. Resume
+files stay in `data/input/resumes/`; logs stay in `data/logs/`.
+
+The original JSON-file layout is still available: `--storage file` on any command
+(or `STORAGE_BACKEND=file`). Tests and the offline demo use it; `tests/test_mongo.py`
+runs the pipeline against a real MongoDB in a throwaway database (skipped if none is reachable).
+
 ## Run
 
 ```bash
@@ -52,7 +64,7 @@ results, interview links, failures, log). Refreshes every 5 s; localhost only.
 ```bash
 uv run screening serve                         # real data -> http://127.0.0.1:8765
 uv run python scripts/make_demo_data.py        # build DEMO data in demo_runs/demo (fake LLM, clearly labelled)
-uv run screening --data-dir demo_runs/demo serve
+uv run screening --data-dir demo_runs/demo --storage file serve
 ```
 
 ## Where things are

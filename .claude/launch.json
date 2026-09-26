@@ -4,7 +4,7 @@
     {
       "name": "dashboard-demo",
       "runtimeExecutable": "C:\\Users\\Int202522\\.local\\bin\\uv.exe",
-      "runtimeArgs": ["run", "screening", "--data-dir", "demo_runs/demo", "dashboard", "--no-browser"],
+      "runtimeArgs": ["run", "screening", "--data-dir", "demo_runs/demo", "--storage", "file", "dashboard", "--no-browser"],
       "port": 8765
     },
     {

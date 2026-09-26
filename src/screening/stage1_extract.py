@@ -6,7 +6,6 @@ from datetime import date
 
 from .context import RunContext, StageSummary
 from .docx_reader import read_docx
-from .index import write_json_atomic
 from .llm import LLMClient
 from .paths import resolve_stored
 from .prompts import load_prompt
@@ -79,10 +78,9 @@ def run_stage1(ctx: RunContext, llm: LLMClient, *, force: bool = False,
                 truncated=truncated,
                 extraction=extraction,
             )
-            out = ctx.config.data.stage1_output / f"{cid}.json"
-            write_json_atomic(out, record.model_dump(mode="json"))
+            ref = ctx.config.store.put_record("stage1_extracted", cid, record.model_dump(mode="json"))
             ctx.index.set_stage(cid, STAGE, "success", run_id=ctx.run_id,
-                                output_path=ctx.config.data.rel(out), display_name=extraction.full_name)
+                                output_path=ref, display_name=extraction.full_name)
             log.info("%s: candidate_id=%s OK name=%r skills=%d roles=%d", STAGE, cid, extraction.full_name,
                      len(extraction.skills), len(extraction.work_experience))
             summary.succeeded.append(cid)

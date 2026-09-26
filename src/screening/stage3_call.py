@@ -16,10 +16,9 @@ from .agent.dialogue import ScreeningDialogue
 from .agent.invites import InviteStore
 from .config import AppConfig
 from .context import RunContext, StageSummary
-from .index import write_json_atomic
 from .llm import LLMClient
-from .paths import resolve_stored
 from .prompts import load_prompt
+from .storage import Store, load_model
 from .schemas import CallInfo, LLMInfo, ScreeningAnswerLLM, Stage2Record, Stage3Record, TranscriptParseLLM
 from .stage2_shortlist import JoinKeyMismatchError, load_stage1
 
@@ -36,9 +35,9 @@ def _questions_block(config: AppConfig) -> str:
     return "\n".join(f"{i}. [{q.id}] {q.question}" for i, q in enumerate(config.questions.questions, 1))
 
 
-def _load_stage2(entry) -> Stage2Record:
+def load_stage2(entry, store: Store) -> Stage2Record:
     st = entry.stages[UPSTREAM]
-    record = Stage2Record.model_validate_json(resolve_stored(st.output_path).read_text(encoding="utf-8"))
+    record = load_model(store, st.output_path, Stage2Record)
     if record.candidate_id != entry.candidate_id:
         raise JoinKeyMismatchError(f"{st.output_path} has candidate_id {record.candidate_id}")
     return record
@@ -53,7 +52,7 @@ def run_stage3(ctx: RunContext, *, force: bool = False, only: set[str] | None = 
     existing active links; --force issues fresh ones (old links stop working)."""
     summary = StageSummary(STAGE)
     log = ctx.logger
-    invites = InviteStore(ctx.config.data.stage3_invites)
+    invites = InviteStore(ctx.config.store)
     ttl = ctx.config.settings.stage3.invite_ttl_days
 
     for entry in ctx.index.all():
@@ -78,7 +77,7 @@ def run_stage3(ctx: RunContext, *, force: bool = False, only: set[str] | None = 
             continue
 
         try:
-            s2 = _load_stage2(entry)
+            s2 = load_stage2(entry, ctx.config.store)
             if s2.decision != "shortlisted":
                 raise ValueError(f"index says shortlisted but {up.output_path} says {s2.decision}")
             inv = None if force else invites.active_for(cid)
@@ -138,28 +137,25 @@ def parse_transcript(ctx: RunContext, llm: LLMClient, *, candidate_id: str, cand
     return parsed, template.rel_path
 
 
-def save_transcript(ctx: RunContext, candidate_id: str, transcript: str) -> Path:
-    tpath = ctx.config.data.stage3_transcripts / f"{candidate_id}.txt"
-    tpath.parent.mkdir(parents=True, exist_ok=True)
-    tpath.write_text(transcript.strip() + "\n", encoding="utf-8")
-    return tpath
+def save_transcript(ctx: RunContext, candidate_id: str, transcript: str) -> str:
+    """Returns the transcript's ref."""
+    return ctx.config.store.put_text("transcripts", candidate_id, transcript.strip() + "\n")
 
 
-def write_stage3_record(ctx: RunContext, llm: LLMClient, *, candidate_id: str, call: CallInfo, transcript_path: Path,
-                        parsed: TranscriptParseLLM, prompt_file: str) -> Path:
+def write_stage3_record(ctx: RunContext, llm: LLMClient, *, candidate_id: str, call: CallInfo, transcript_ref: str,
+                        parsed: TranscriptParseLLM, prompt_file: str) -> str:
     record = Stage3Record(
         candidate_id=candidate_id, run_id=ctx.run_id,
         llm=LLMInfo(provider=llm.provider, model=llm.model, prompt_file=prompt_file),
-        job_id=ctx.config.job.job_id, call=call, transcript_path=ctx.config.data.rel(transcript_path),
+        job_id=ctx.config.job.job_id, call=call, transcript_path=transcript_ref,
         screening=parsed)
-    out = ctx.config.data.stage3_output / f"{candidate_id}.json"
-    write_json_atomic(out, record.model_dump(mode="json"))
-    return out
+    return ctx.config.store.put_record("stage3_calls", candidate_id, record.model_dump(mode="json"))
 
 
 def finalize_dialogue(ctx: RunContext, llm: LLMClient, dialogue: ScreeningDialogue,
-                      invites: InviteStore | None = None, token: str | None = None) -> Path | None:
-    """Called once when a conversation ends (any outcome). Log-and-skip on errors."""
+                      invites: InviteStore | None = None, token: str | None = None) -> str | None:
+    """Called once when a conversation ends (any outcome). Log-and-skip on errors.
+    Returns the stage3 record's ref (None if nothing was written)."""
     st = dialogue.state
     cid = st.candidate_id
     entry = ctx.index.reload().get(cid)
@@ -169,7 +165,7 @@ def finalize_dialogue(ctx: RunContext, llm: LLMClient, dialogue: ScreeningDialog
     # Invite lifecycle: completed -> used, opted out -> revoked, anything else -> stays active for a retry.
     # Calls held outside the web page (terminal simulation) close the candidate's active link too.
     if token is None and outcome in ("completed", "opted_out"):
-        invites = invites or InviteStore(ctx.config.data.stage3_invites)
+        invites = invites or InviteStore(ctx.config.store)
         active = invites.active_for(cid)
         token = active.token if active else None
     if invites and token:
@@ -183,7 +179,7 @@ def finalize_dialogue(ctx: RunContext, llm: LLMClient, dialogue: ScreeningDialog
         return None
 
     try:
-        tpath = save_transcript(ctx, cid, dialogue.transcript_text())
+        tref = save_transcript(ctx, cid, dialogue.transcript_text())
         call = CallInfo(channel=st.channel, session_id=st.session_id, status=outcome, started_at=st.started_at,
                         ended_at=st.ended_at, duration_seconds=dialogue.duration_seconds(),
                         agent_turns=sum(t.speaker == "agent" for t in st.turns),
@@ -192,13 +188,12 @@ def finalize_dialogue(ctx: RunContext, llm: LLMClient, dialogue: ScreeningDialog
                         agent_llm=f"{dialogue.llm.provider}/{dialogue.llm.model}")
         parsed, prompt_file = parse_transcript(ctx, llm, candidate_id=cid, candidate_name=st.candidate_name,
                                                transcript=dialogue.transcript_text())
-        out = write_stage3_record(ctx, llm, candidate_id=cid, call=call, transcript_path=tpath, parsed=parsed,
+        rel = write_stage3_record(ctx, llm, candidate_id=cid, call=call, transcript_ref=tref, parsed=parsed,
                                   prompt_file=prompt_file)
     except Exception as e:
         ctx.fail(STAGE, entry, e)
         return None
 
-    rel = ctx.config.data.rel(out)
     if outcome == "completed":
         ctx.index.set_stage(cid, STAGE, "success", run_id=ctx.run_id, output_path=rel,
                             note=f"call completed ({st.channel})")
@@ -211,22 +206,22 @@ def finalize_dialogue(ctx: RunContext, llm: LLMClient, dialogue: ScreeningDialog
         extra = f" ({st.reschedule_note})" if st.reschedule_note else ""
         ctx.index.set_stage(cid, STAGE, "awaiting", run_id=ctx.run_id, output_path=rel,
                             note=f"last call {outcome}{extra}; link still active for another attempt")
-    return out
+    return rel
 
 
-def parse_local_transcript(ctx: RunContext, llm: LLMClient, candidate_id: str, transcript_file: Path) -> Path:
+def parse_local_transcript(ctx: RunContext, llm: LLMClient, candidate_id: str, transcript_file: Path) -> str:
     """Run the transcript parser on a local .txt (e.g. a call held outside this system)."""
     entry = ctx.index.get(candidate_id)
     name = entry.display_name
     if entry.stages["stage1_extraction"].status == "success":
-        name = load_stage1(entry).extraction.full_name
+        name = load_stage1(entry, ctx.config.store).extraction.full_name
     transcript = Path(transcript_file).read_text(encoding="utf-8")
     parsed, prompt_file = parse_transcript(ctx, llm, candidate_id=candidate_id, candidate_name=name,
                                            transcript=transcript)
-    tpath = save_transcript(ctx, candidate_id, transcript)
+    tref = save_transcript(ctx, candidate_id, transcript)
     call = CallInfo(channel="local_transcript_file", session_id=None, status="completed")
-    out = write_stage3_record(ctx, llm, candidate_id=candidate_id, call=call, transcript_path=tpath, parsed=parsed,
+    ref = write_stage3_record(ctx, llm, candidate_id=candidate_id, call=call, transcript_ref=tref, parsed=parsed,
                               prompt_file=prompt_file)
-    ctx.index.set_stage(candidate_id, STAGE, "success", run_id=ctx.run_id, output_path=ctx.config.data.rel(out),
+    ctx.index.set_stage(candidate_id, STAGE, "success", run_id=ctx.run_id, output_path=ref,
                         note="parsed from a local transcript file")
-    return out
+    return ref

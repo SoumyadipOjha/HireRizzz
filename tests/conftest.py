@@ -2,10 +2,14 @@
 
 from __future__ import annotations
 
+import os
 import shutil
 from pathlib import Path
 
 import pytest
+
+# Tests use the JSON-file backend unless a test opts into MongoDB explicitly.
+os.environ["STORAGE_BACKEND"] = "file"
 
 from screening.config import load_config
 from screening.context import RunContext

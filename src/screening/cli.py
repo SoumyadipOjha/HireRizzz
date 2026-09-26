@@ -12,10 +12,11 @@ from .context import RunContext
 from .index import CandidateIndexError, write_json_atomic
 from .paths import SCHEMAS_DIR
 from .schemas import EXPORTED_SCHEMAS, STAGES
+from .storage import StoreError
 
 
 def _ctx(args) -> RunContext:
-    return RunContext.create(load_config(data_dir=args.data_dir))
+    return RunContext.create(load_config(data_dir=args.data_dir, storage=args.storage))
 
 
 def cmd_ingest(args) -> int:
@@ -113,7 +114,7 @@ def cmd_simulate_call(args) -> int:
     if entry.stages["stage1_extraction"].status != "success":
         print("ERROR: this candidate has no Stage 1 profile yet", file=sys.stderr)
         return 2
-    name = load_stage1(entry).extraction.full_name
+    name = load_stage1(entry, ctx.config.store).extraction.full_name
     llm = _llm(ctx)
     script = None
     if args.script:
@@ -144,7 +145,7 @@ def cmd_simulate_call(args) -> int:
     print(f"--- call ended: {d.state.outcome} ---")
     out = finalize_dialogue(ctx, llm, d)
     if out:
-        print(f"wrote {ctx.config.data.rel(out)}")
+        print(f"wrote {out}")
     return 0 if out or d.state.outcome != "completed" else 1
 
 
@@ -159,7 +160,7 @@ def cmd_parse_transcript(args) -> int:
     except Exception as e:
         ctx.fail(STAGE, entry, e)
         return 1
-    ctx.logger.info("%s: candidate_id=%s wrote %s", STAGE, args.candidate_id, ctx.config.data.rel(out))
+    ctx.logger.info("%s: candidate_id=%s wrote %s", STAGE, args.candidate_id, out)
     return 0
 
 
@@ -167,7 +168,7 @@ def cmd_check_llm(args) -> int:
     from .llm import make_client
     from .llm.base import LLMError
 
-    cfg = load_config(data_dir=args.data_dir)
+    cfg = load_config(data_dir=args.data_dir, storage=args.storage)
     client = make_client(cfg)
     print(f"provider={client.provider} configured model={client.model}")
     try:
@@ -186,15 +187,15 @@ def cmd_check_llm(args) -> int:
 def cmd_dashboard(args) -> int:
     from .dashboard import serve
 
-    serve(load_config(data_dir=args.data_dir), port=args.port, open_browser=not args.no_browser, host=args.host)
+    serve(load_config(data_dir=args.data_dir, storage=args.storage), port=args.port, open_browser=not args.no_browser, host=args.host)
     return 0
 
 
 def cmd_status(args) -> int:
-    cfg = load_config(data_dir=args.data_dir)
+    cfg = load_config(data_dir=args.data_dir, storage=args.storage)
     from .index import CandidateIndex
 
-    index = CandidateIndex(cfg.data.candidates_index)
+    index = CandidateIndex(cfg.store)
     entries = index.all()
     if args.json:
         print(json.dumps(index.doc.model_dump(mode="json"), indent=2, ensure_ascii=False))
@@ -233,6 +234,8 @@ def cmd_export_schemas(args) -> int:
 def build_parser() -> argparse.ArgumentParser:
     p = argparse.ArgumentParser(prog="screening", description="Recruiting screening pipeline (Stages 1-3).")
     p.add_argument("--data-dir", type=Path, default=None, help="Data directory (default: <project>/data)")
+    p.add_argument("--storage", choices=("file", "mongodb"), default=None,
+                   help="Where data is stored (default: STORAGE_BACKEND env var, else storage.backend in settings.yaml)")
     sub = p.add_subparsers(dest="command", required=True)
 
     s = sub.add_parser("ingest", help="Stage 0: register resumes and assign candidate_ids")
@@ -294,7 +297,7 @@ def main(argv: list[str] | None = None) -> int:
     args = build_parser().parse_args(argv)
     try:
         return args.func(args)
-    except (ConfigError, CandidateIndexError, FileNotFoundError, KeyError) as e:
+    except (ConfigError, CandidateIndexError, StoreError, FileNotFoundError, KeyError) as e:
         print(f"ERROR: {e}", file=sys.stderr)
         return 2
 

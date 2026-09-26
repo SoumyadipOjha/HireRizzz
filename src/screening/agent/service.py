@@ -1,7 +1,7 @@
 """Live interview sessions for the web server.
 
 * One active session per invite link; starting again abandons the previous one.
-* Every turn is persisted to data/stage3_calls/sessions/<session_id>.json, so a
+* Every turn is persisted (sessions/<session_id> in the store), so a
   server crash never loses a transcript.
 * When a session ends it is finalized (transcript -> LLM parse -> stage3 record)
   on a background thread, so the candidate's page is never kept waiting.
@@ -14,7 +14,6 @@ from dataclasses import dataclass
 from typing import Callable
 
 from ..context import RunContext
-from ..index import write_json_atomic
 from ..llm import LLMClient
 from ..schemas import CallChannel
 from ..stage2_shortlist import load_stage1
@@ -34,7 +33,7 @@ class InterviewService:
         self.ctx = ctx
         self._llm_factory = llm_factory
         self._llm: LLMClient | None = None
-        self.invites = InviteStore(ctx.config.data.stage3_invites)
+        self.invites = InviteStore(ctx.config.store)
         self._live: dict[str, _Live] = {}
         self._lock = threading.Lock()          # guards _live
         self._index_lock = threading.Lock()    # serialises index writes from finalizer threads
@@ -62,7 +61,7 @@ class InterviewService:
     def start(self, token: str, channel: CallChannel) -> dict:
         inv = self.invites.validate(token)
         entry = self._entry(inv.candidate_id)
-        name = load_stage1(entry).extraction.full_name if entry.stages["stage1_extraction"].status == "success" \
+        name = load_stage1(entry, self.ctx.config.store).extraction.full_name if entry.stages["stage1_extraction"].status == "success" \
             else entry.display_name
         with self._lock:
             for sid, live in list(self._live.items()):
@@ -125,8 +124,7 @@ class InterviewService:
         self._finalize_async(live)
 
     def _persist(self, dialogue: ScreeningDialogue) -> None:
-        path = self.ctx.config.data.stage3_sessions / f"{dialogue.state.session_id}.json"
-        write_json_atomic(path, dialogue.to_dict())
+        self.ctx.config.store.put_record("sessions", dialogue.state.session_id, dialogue.to_dict())
 
     def _finalize_async(self, live: _Live) -> None:
         from ..stage3_call import finalize_dialogue

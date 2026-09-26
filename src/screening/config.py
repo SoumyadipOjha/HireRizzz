@@ -6,12 +6,14 @@ from __future__ import annotations
 import math
 import os
 from pathlib import Path
+from typing import Literal
 
 import yaml
 from dotenv import load_dotenv
 from pydantic import BaseModel, ConfigDict, Field, ValidationError, field_validator, model_validator
 
 from .paths import CONFIG_DIR, DEFAULT_DATA_DIR, PROJECT_ROOT, DataPaths, build_data_paths
+from .storage import FileStore, Store
 
 CRITERIA = ("must_have_skills", "experience", "nice_to_have_skills", "role_relevance")
 
@@ -33,6 +35,7 @@ class PathsConfig(_Strict):
     stage3_transcripts: str
     stage3_sessions: str
     stage3_invites: str
+    stage4_output: str = "stage4_evaluation"
     logs: str
 
 
@@ -94,6 +97,18 @@ class Stage3Config(_Strict):
         return v.rstrip("/")
 
 
+StorageBackend = Literal["file", "mongodb"]
+STORAGE_ENV = "STORAGE_BACKEND"  # overrides storage.backend (tests and --storage use it)
+
+
+class StorageConfig(_Strict):
+    backend: StorageBackend = "file"
+    mongodb_uri_env: str = "MONGODB_URI"
+    mongodb_db_env: str = "MONGODB_DB_NAME"
+    default_uri: str = "mongodb://localhost:27017"   # used when MONGODB_URI is not set
+    default_database: str = "recruiting_screening"
+
+
 class LoggingConfig(_Strict):
     console_level: str = "INFO"
     file_level: str = "DEBUG"
@@ -106,6 +121,7 @@ class Settings(_Strict):
     scoring: Scoring
     llm: LLMConfig
     stage3: Stage3Config = Stage3Config()
+    storage: StorageConfig = StorageConfig()
     logging: LoggingConfig = LoggingConfig()
 
 
@@ -146,6 +162,13 @@ class AppConfig:
         self.data = data
         self._jd: JobDescription | None = None
         self._questions: ScreeningQuestions | None = None
+        self._store: Store | None = None
+
+    @property
+    def store(self) -> Store:
+        if self._store is None:
+            self._store = _make_store(self)
+        return self._store
 
     @property
     def job(self) -> JobDescription:
@@ -172,6 +195,17 @@ class AppConfig:
         return key
 
 
+def _make_store(config: AppConfig) -> Store:
+    sc = config.settings.storage
+    if sc.backend == "file":
+        return FileStore(config.data)
+    from .storage.mongo_store import MongoStore
+
+    uri = os.environ.get(sc.mongodb_uri_env, "").strip() or sc.default_uri
+    database = os.environ.get(sc.mongodb_db_env, "").strip() or sc.default_database
+    return MongoStore(uri, database)
+
+
 def _read_yaml(path: Path) -> dict:
     if not path.is_file():
         raise ConfigError(f"Config file not found: {path}")
@@ -191,8 +225,16 @@ def _load_model(path: Path, model: type[BaseModel]):
         raise ConfigError(f"Invalid config in {path}:\n{e}") from e
 
 
-def load_config(data_dir: Path | None = None, settings_file: Path | None = None) -> AppConfig:
+def load_config(data_dir: Path | None = None, settings_file: Path | None = None,
+                storage: StorageBackend | None = None) -> AppConfig:
+    """`storage` (e.g. from --storage) wins over the STORAGE_BACKEND env var, which wins over settings.yaml."""
     load_dotenv(PROJECT_ROOT / ".env")
     settings = _load_model(settings_file or CONFIG_DIR / "settings.yaml", Settings)
+    backend = storage or os.environ.get(STORAGE_ENV, "").strip() or None
+    if backend:
+        if backend not in ("file", "mongodb"):
+            raise ConfigError(f"storage backend must be 'file' or 'mongodb' (got {backend!r})")
+        settings = settings.model_copy(
+            update={"storage": settings.storage.model_copy(update={"backend": backend})})
     data = build_data_paths(data_dir or DEFAULT_DATA_DIR, settings.paths.model_dump())
     return AppConfig(settings, data)
