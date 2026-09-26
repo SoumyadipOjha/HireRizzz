@@ -124,4 +124,5 @@ def test_cors_only_for_the_configured_frontend(server, monkeypatch):
     assert call("OPTIONS", "https://evil.example")[0] == 403
     assert call("GET", "https://evil.example") == (200, None)  # the browser won't let that site read it
     with urllib.request.urlopen(base + "/api/health") as r:
-        assert json.loads(r.read())["ok"] is True
+        h = json.loads(r.read())
+        assert h["ok"] is True and "commit" in h

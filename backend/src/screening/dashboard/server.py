@@ -466,7 +466,9 @@ class Handler(BaseHTTPRequestHandler):
             if path == "/config.js":
                 return self._page("config.js")
             if path == "/api/health":
-                return self._json({"ok": True, "service": "hirerizz-backend"})
+                # Render sets RENDER_GIT_COMMIT: shows which commit is deployed
+                commit = os.environ.get("RENDER_GIT_COMMIT", "")[:7] or None
+                return self._json({"ok": True, "service": "hirerizz-backend", "commit": commit})
             if m := _INTERVIEW_API.match(path):
                 return self._interview(m.group(1), m.group(2), method="GET")
 
