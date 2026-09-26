@@ -12,15 +12,16 @@ from __future__ import annotations
 from datetime import datetime, timezone
 from typing import Literal
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 SCHEMA_VERSION = "1.0"
 
-StageName = Literal["stage1_extraction", "stage2_shortlisting", "stage3_calling"]
-STAGES: tuple[StageName, ...] = ("stage1_extraction", "stage2_shortlisting", "stage3_calling")
+StageName = Literal["stage1_extraction", "stage2_shortlisting", "stage3_calling", "stage4_evaluation"]
+STAGES: tuple[StageName, ...] = ("stage1_extraction", "stage2_shortlisting", "stage3_calling", "stage4_evaluation")
 StageStatus = Literal["pending", "success", "failed", "skipped", "awaiting"]
-OverallStatus = Literal["active", "rejected", "failed", "awaiting", "completed"]
+OverallStatus = Literal["active", "rejected", "failed", "awaiting", "completed", "evaluated"]
 Decision = Literal["shortlisted", "rejected"]
+COMPETENCIES = ("role_knowledge", "problem_solving", "communication", "motivation")
 
 
 def utc_now() -> str:
@@ -56,6 +57,14 @@ class CandidateEntry(_Model):
     current_stage: StageName = "stage1_extraction"
     overall_status: OverallStatus = "active"
     stages: dict[StageName, StageState] = Field(default_factory=lambda: {s: StageState() for s in STAGES})
+
+    @model_validator(mode="after")
+    def _all_stages(self) -> "CandidateEntry":
+        # Entries written before a stage existed get it as `pending`.
+        for s in STAGES:
+            self.stages.setdefault(s, StageState())
+        self.stages = {s: self.stages[s] for s in STAGES}
+        return self
 
 
 class CandidatesIndexDoc(_Model):
@@ -241,9 +250,60 @@ class Stage3Record(Envelope):
     screening: TranscriptParseLLM
 
 
+# ---------------------------------------------------------------------------
+# Stage 4 — interview evaluation (LLM scores competencies, code decides)
+# ---------------------------------------------------------------------------
+
+class CompetencyAssessmentLLM(_Model):
+    score: int = Field(ge=0, le=100, description="0-100, per the rubric")
+    evidence_quotes: list[str] = Field(
+        description="1-3 short quotes copied WORD FOR WORD from the candidate's lines in the transcript; "
+                    "empty if the candidate said nothing relevant")
+    rationale: str = Field(description="1-2 sentences explaining the score")
+
+
+class InterviewEvaluationLLM(_Model):
+    role_knowledge: CompetencyAssessmentLLM
+    problem_solving: CompetencyAssessmentLLM
+    communication: CompetencyAssessmentLLM
+    motivation: CompetencyAssessmentLLM
+    concerns: list[str] = Field(description="Concrete concerns for the hiring team (e.g. vague answers, "
+                                            "inconsistency with the resume, notice period); empty if none")
+    summary: str = Field(description="2-3 sentence overall assessment of the interview")
+
+
+class CompetencyResult(_Model):
+    competency: Literal["role_knowledge", "problem_solving", "communication", "motivation"]
+    score: int
+    weight: float
+    weighted_score: float
+    evidence_quotes: list[str]            # only quotes found verbatim in the candidate's own words
+    unverified_quotes: list[str] = []     # quotes the LLM gave that are NOT in the transcript (dropped)
+    rationale: str
+
+
+class Stage4Record(Envelope):
+    stage: Literal["stage4_evaluation"] = "stage4_evaluation"
+    job_id: str
+    competencies: list[CompetencyResult]
+    interview_score: float                # Σ competency score × weight
+    resume_score: float                   # Stage 2 overall_score
+    resume_weight: float
+    interview_weight: float
+    final_score: float                    # resume × resume_weight + interview × interview_weight
+    threshold: float
+    suggested_decision: Decision          # the AI's suggestion; people make the final call
+    decision_reasons: list[str]
+    needs_review: bool                    # low evidence or red flags: a person should look closely
+    review_reasons: list[str]
+    concerns: list[str]
+    summary: str
+
+
 EXPORTED_SCHEMAS: dict[str, type[BaseModel]] = {
     "candidates_index": CandidatesIndexDoc,
     "stage1_extracted": Stage1Record,
     "stage2_shortlist": Stage2Record,
     "stage3_calls": Stage3Record,
+    "stage4_evaluation": Stage4Record,
 }

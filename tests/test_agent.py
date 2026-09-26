@@ -17,7 +17,7 @@ from screening.agent.invites import InviteError, InviteStore
 from screening.agent.service import InterviewService
 from screening.dashboard.server import DashboardAPI, Handler
 from screening.llm.base import LLMError
-from screening.schemas import Stage3Record
+from screening.schemas import Stage3Record, Stage4Record
 from screening.stage0_ingest import ingest
 from screening.stage1_extract import run_stage1
 from screening.stage2_shortlist import run_stage2
@@ -206,14 +206,16 @@ def test_interview_over_http(live):
     _, _, info = _call(f"{base}/api/interview/{token}/info")
     assert info == {"first_name": "Aarav", "job_title": ctx.config.job.title,
                     "company_name": ctx.config.job.company_name, "speech_lang": "en-IN",
-                    "questions": len(ctx.config.questions.questions),
+                    "questions": len(ctx.config.questions.questions), "minutes": 7,
                     "verification_required": False, "email_hint": None}  # nothing else leaks
 
     _, _, r = _call(f"{base}/api/interview/{token}/start", {"channel": "browser_voice"})
     sid = r["session_id"]
     assert "Hi Aarav" in r["say"]
-    answers = ["Yes, go ahead", "Yes, actively looking", "Hyderabad", "Hybrid is fine", "Two months",
-               "22 LPA", "30 LPA", "Weekday evenings"]
+    answers = ["Yes, go ahead", "Yes, actively looking",
+               "I built an order API with FastAPI and PostgreSQL, I owned the payments endpoints",
+               "A slow query: I used EXPLAIN, added a composite index and cut latency from 2s to 80ms",
+               "Hyderabad", "Hybrid is fine", "Two months", "22 LPA", "30 LPA", "Weekday evenings"]
     for a in answers:
         _, _, r = _call(f"{base}/api/interview/{token}/turn", {"session_id": sid, "text": a})
         if r["ended"]:
@@ -223,13 +225,20 @@ def test_interview_over_http(live):
 
     entry = ctx.index.reload().get(cid)
     st = entry.stages["stage3_calling"]
-    assert st.status == "success" and entry.overall_status == "completed"
+    assert st.status == "success" and entry.overall_status == "evaluated"  # scored right after the call
     rec = Stage3Record.model_validate_json((ctx.config.data.stage3_output / f"{cid}.json").read_text())
     assert rec.call.channel == "browser_voice" and rec.call.status == "completed" and rec.call.session_id == sid
     assert rec.call.candidate_turns == len(answers)
     transcript = (ctx.config.data.stage3_transcripts / f"{cid}.txt").read_text()
     assert "Candidate: Hyderabad" in transcript
     assert (ctx.config.data.stage3_sessions / f"{sid}.json").exists()
+
+    # the finished call was scored straight away (Stage 4)
+    s4 = entry.stages["stage4_evaluation"]
+    assert s4.status == "success" and s4.decision in ("shortlisted", "rejected") and entry.overall_status == "evaluated"
+    rec4 = Stage4Record.model_validate_json((ctx.config.data.stage4_output / f"{cid}.json").read_text())
+    role = next(c for c in rec4.competencies if c.competency == "role_knowledge")
+    assert role.evidence_quotes == ["Yes, actively looking"]
 
     # link is single-use once completed
     with pytest.raises(urllib.error.HTTPError) as e:

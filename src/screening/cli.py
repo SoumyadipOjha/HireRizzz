@@ -95,11 +95,20 @@ def cmd_remind(args) -> int:
     return 0
 
 
+def cmd_evaluate(args) -> int:
+    from .stage4_evaluate import run_stage4
+
+    ctx = _ctx(args)
+    ctx.config.job, ctx.config.questions
+    return _exit_code(run_stage4(ctx, _llm(ctx), force=args.force, only=_only(args)))
+
+
 def cmd_run(args) -> int:
     from .stage0_ingest import ingest
     from .stage1_extract import run_stage1
     from .stage2_shortlist import run_stage2
     from .stage3_call import run_stage3
+    from .stage4_evaluate import run_stage4
 
     ctx = _ctx(args)
     ctx.config.job, ctx.config.questions  # validate all config up front
@@ -109,11 +118,12 @@ def cmd_run(args) -> int:
     s1 = run_stage1(ctx, llm, force=args.force)
     s2 = run_stage2(ctx, llm, force=args.force)
     s3 = run_stage3(ctx, force=args.force)
+    s4 = run_stage4(ctx, llm, force=args.force)  # candidates whose calls have finished
     ctx.logger.info("=== run complete ===")
-    for s in (s1, s2, s3):
+    for s in (s1, s2, s3, s4):
         ctx.logger.info("  %s", s.line())
     _print_invites(ctx, s3.awaiting)
-    return _exit_code(s1, s2, s3)
+    return _exit_code(s1, s2, s3, s4)
 
 
 def cmd_simulate_call(args) -> int:
@@ -217,14 +227,14 @@ def cmd_status(args) -> int:
     if not entries:
         print(f"No candidates in {cfg.data.candidates_index}")
         return 0
-    short = {"stage1_extraction": "S1", "stage2_shortlisting": "S2", "stage3_calling": "S3"}
+    short = {"stage1_extraction": "S1", "stage2_shortlisting": "S2", "stage3_calling": "S3", "stage4_evaluation": "S4"}
     print(f"{'candidate_id':36}  {'name':22} {'overall':9} " + " ".join(f"{short[s]:9}" for s in STAGES) + " file")
     for e in entries:
         stage_cols = []
         for s in STAGES:
             st = e.stages[s]
             label = st.status
-            if s == "stage2_shortlisting" and st.decision:
+            if s in ("stage2_shortlisting", "stage4_evaluation") and st.decision:
                 label = f"{st.decision[:5]}:{st.score:g}" if st.score is not None else st.decision
             stage_cols.append(f"{label:9}")
         name = (e.display_name or "-")[:22]
@@ -246,7 +256,7 @@ def cmd_export_schemas(args) -> int:
 
 
 def build_parser() -> argparse.ArgumentParser:
-    p = argparse.ArgumentParser(prog="screening", description="Recruiting screening pipeline (Stages 1-3).")
+    p = argparse.ArgumentParser(prog="screening", description="Recruiting screening pipeline (Stages 1-4).")
     p.add_argument("--data-dir", type=Path, default=None, help="Data directory (default: <project>/data)")
     p.add_argument("--storage", choices=("file", "mongodb"), default=None,
                    help="Where data is stored (default: STORAGE_BACKEND env var, else storage.backend in settings.yaml)")
@@ -271,10 +281,12 @@ def build_parser() -> argparse.ArgumentParser:
     sub.choices["call"].add_argument("--resend", action="store_true",
                                      help="Email active links again (e.g. after fixing SMTP settings)")
 
+    stage_cmd("evaluate", "Stage 4: score finished interviews and suggest final decisions (LLM)", cmd_evaluate)
+
     s = sub.add_parser("remind", help="Stage 3: email a reminder to candidates who haven't started their call")
     s.set_defaults(func=cmd_remind)
 
-    s = sub.add_parser("run", help="Ingest + Stages 1-3 in order")
+    s = sub.add_parser("run", help="Ingest + Stages 1-4 in order")
     s.add_argument("--input-dir", type=Path, default=None)
     s.add_argument("--force", action="store_true")
     s.set_defaults(func=cmd_run)

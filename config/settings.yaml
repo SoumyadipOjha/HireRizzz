@@ -53,6 +53,19 @@ stage3:
   otp_max_attempts: 5
   otp_resend_seconds: 30
 
+evaluation:
+  # Stage 4: the LLM scores the interview (0-100 per competency, backed by quotes that code checks
+  # against the transcript); code applies these weights and suggests a final decision for people to approve.
+  resume_weight: 0.4              # final_score = resume_score x resume_weight + interview_score x interview_weight
+  interview_weight: 0.6
+  final_threshold: 65             # final_score >= this => suggested "shortlisted"
+  competency_weights:             # must sum to 1.0
+    role_knowledge: 0.35
+    problem_solving: 0.25
+    communication: 0.20
+    motivation: 0.20
+  min_verified_quotes: 1          # a scored competency with fewer verified quotes is flagged "needs review"
+
 email:
   # smtp:   send for real via SMTP_* in .env (Gmail: SMTP_USER = your address, SMTP_PASS = 16-char app password)
   # outbox: write every email to <data>/outbox/*.eml instead of sending (dry run). Override with --email.

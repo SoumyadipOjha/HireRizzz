@@ -3,6 +3,11 @@
 questions:
   - id: interest
     question: Are you currently open to new opportunities, and are you interested in this role?
+  # Role questions: Stage 4 scores the answers (role_knowledge, problem_solving). Rewrite them for your JD.
+  - id: recent_project
+    question: Tell me about a recent project where you built or maintained a REST API in Python. What was your part in it?
+  - id: problem_solved
+    question: Can you describe a tricky bug or performance problem you solved? How did you find the cause?
   - id: current_location
     question: Where are you currently based?
   - id: relocation

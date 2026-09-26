@@ -88,8 +88,9 @@ header.top { display: flex; align-items: center; gap: 16px; flex-wrap: wrap; mar
 
 /* pipeline strip */
 .card { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); box-shadow: var(--shadow); }
-.pipeline { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 0; margin-bottom: 16px; }
-@media (max-width: 800px) { .pipeline { grid-template-columns: 1fr; } }
+.pipeline { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 0; margin-bottom: 16px; }
+@media (max-width: 1000px) { .pipeline { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+@media (max-width: 560px) { .pipeline { grid-template-columns: 1fr; } }
 .pstage { padding: 14px 16px; border-right: 1px solid var(--border); min-width: 0; }
 .pstage:last-child { border-right: 0; }
 @media (max-width: 800px) { .pstage { border-right: 0; border-bottom: 1px solid var(--border); } .pstage:last-child { border-bottom: 0; } }
@@ -296,7 +297,7 @@ function h(tag, attrs, ...kids) {
   return el;
 }
 const $ = (id) => document.getElementById(id);
-const STAGE_LABEL = { stage1_extraction: "1 · Extraction", stage2_shortlisting: "2 · Shortlisting", stage3_calling: "3 · Screening call" };
+const STAGE_LABEL = { stage1_extraction: "1 · Extraction", stage2_shortlisting: "2 · Shortlisting", stage3_calling: "3 · Screening call", stage4_evaluation: "4 · Evaluation" };
 const STATUS_ORDER = ["success", "failed", "awaiting", "skipped", "pending"];
 const STATUS_COLOR = { success: "var(--ok)", failed: "var(--bad)", awaiting: "var(--warn)", skipped: "var(--text-3)", pending: "var(--pending)" };
 const pill = (s, label) => h("span", { class: `pill s-${s}` }, label || s);

@@ -141,7 +141,7 @@ footer { margin-top: auto; padding-top: 18px; text-align: center; font-size: 12p
     <h1 id="l-hello">Hi there 👋</h1>
     <p class="muted">Thanks for your interest. This is a short, automated first-round screening conversation with an AI recruiting assistant.</p>
     <ul class="points">
-      <li><span class="ico">5</span><span><b>About 5 minutes</b> · <span id="l-q"></span> quick questions: availability, notice period, location and compensation expectations.</span></li>
+      <li><span class="ico" id="l-min-ico">5</span><span><b>About <span id="l-min">5</span> minutes</b> · <span id="l-q"></span> quick questions: a little about your experience, plus availability, notice period, location and compensation expectations.</span></li>
       <li><span class="ico">AI</span><span><b>You're talking to an AI assistant</b>, not a person. You can ask it basic questions about the role; anything else goes to the recruiting team.</span></li>
       <li><span class="ico">●</span><span><b>Recorded and transcribed</b> for the hiring team. You can stop at any time; just say so or press End.</span></li>
       <li><span class="ico">🎙</span><span><b>Voice uses your microphone</b> and your browser's speech recognition (in Chrome and Edge, audio is processed by the browser vendor's speech service). Prefer not to? Type instead.</span></li>
@@ -482,6 +482,7 @@ window.addEventListener("pagehide", () => {  // closing the tab = hanging up
   $("l-role").textContent = `${i.job_title} · ${i.company_name}`;
   $("l-hello").textContent = i.first_name ? `Hi ${i.first_name} 👋` : "Hi there 👋";
   $("l-q").textContent = String(i.questions);
+  if (i.minutes) { $("l-min").textContent = String(i.minutes); $("l-min-ico").textContent = String(i.minutes); }
   $("f-company").textContent = i.company_name;
   if (!canListen || !canSpeak) {
     $("b-voice").disabled = true;

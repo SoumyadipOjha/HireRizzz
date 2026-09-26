@@ -118,6 +118,8 @@ def _recompute(entry: CandidateEntry) -> None:
         entry.overall_status = "failed"
     elif st["stage2_shortlisting"].decision == "rejected":
         entry.overall_status = "rejected"
+    elif st["stage4_evaluation"].status == "success":
+        entry.overall_status = "evaluated"
     elif st["stage3_calling"].status == "success":
         entry.overall_status = "completed"
     elif st["stage3_calling"].status == "awaiting":

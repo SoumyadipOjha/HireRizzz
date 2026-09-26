@@ -72,6 +72,33 @@ class Scoring(_Strict):
         return w
 
 
+class EvaluationConfig(_Strict):
+    """Stage 4: how the interview is scored and combined with the resume score."""
+    resume_weight: float = Field(default=0.4, ge=0, le=1)
+    interview_weight: float = Field(default=0.6, ge=0, le=1)
+    final_threshold: float = Field(default=65, ge=0, le=100)   # final_score >= this => suggest shortlisted
+    competency_weights: dict[str, float] = Field(default_factory=lambda: {
+        "role_knowledge": 0.35, "problem_solving": 0.25, "communication": 0.20, "motivation": 0.20})
+    min_verified_quotes: int = Field(default=1, ge=0)  # fewer verified quotes for a competency => needs_review
+
+    @field_validator("competency_weights")
+    @classmethod
+    def _check_competencies(cls, w: dict[str, float]) -> dict[str, float]:
+        from .schemas import COMPETENCIES
+
+        if set(w) != set(COMPETENCIES):
+            raise ValueError(f"competency_weights must have exactly: {', '.join(COMPETENCIES)} (got {sorted(w)})")
+        if any(v < 0 for v in w.values()) or not math.isclose(sum(w.values()), 1.0, abs_tol=1e-6):
+            raise ValueError(f"competency_weights must be non-negative and sum to 1.0 (got {sum(w.values()):.4f})")
+        return w
+
+    @model_validator(mode="after")
+    def _weights_sum(self) -> "EvaluationConfig":
+        if not math.isclose(self.resume_weight + self.interview_weight, 1.0, abs_tol=1e-6):
+            raise ValueError("resume_weight + interview_weight must equal 1.0")
+        return self
+
+
 class LLMConfig(_Strict):
     provider: str
     model: str
@@ -143,6 +170,7 @@ class Settings(_Strict):
     scoring: Scoring
     llm: LLMConfig
     stage3: Stage3Config = Stage3Config()
+    evaluation: EvaluationConfig = EvaluationConfig()
     storage: StorageConfig = StorageConfig()
     email: EmailConfig = EmailConfig()
     logging: LoggingConfig = LoggingConfig()

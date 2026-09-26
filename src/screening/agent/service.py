@@ -19,7 +19,7 @@ from ..mailer import Mailer, make_mailer, mask_email
 from ..schemas import CallChannel, utc_now
 from .dialogue import ScreeningDialogue
 from .invites import InviteError, InviteStore
-from .notify import candidate_contact
+from .notify import call_minutes, candidate_contact
 from .verification import VerificationError, check_code, has_access, send_code, verification_required
 
 
@@ -72,7 +72,7 @@ class InterviewService:
             self.invites.update(token, opened_at=utc_now())
         return {"first_name": name.split()[0] if name else None, "job_title": job.title,
                 "company_name": job.company_name, "speech_lang": s3.speech_lang,
-                "questions": len(self.ctx.config.questions.questions),
+                "questions": len(self.ctx.config.questions.questions), "minutes": call_minutes(self.ctx.config),
                 "verification_required": need, "email_hint": mask_email(email) if need else None}
 
     def request_code(self, token: str) -> dict:
@@ -172,9 +172,16 @@ class InterviewService:
 
         def work():
             with self._index_lock:
+                cid = live.dialogue.state.candidate_id
                 try:
                     finalize_dialogue(self.ctx, self.llm, live.dialogue, self.invites, live.token)
-                except Exception as e:  # finalize_dialogue already log-and-skips; this is a last resort
+                    # A completed call is scored straight away, so the dashboard fills in while the
+                    # candidate is still on the thank-you page (run_stage4 log-and-skips on its own).
+                    if self.ctx.index.reload().get(cid).stages["stage3_calling"].status == "success":
+                        from ..stage4_evaluate import run_stage4
+
+                        run_stage4(self.ctx, self.llm, only={cid})
+                except Exception as e:  # both steps already log-and-skip; this is a last resort
                     self.ctx.logger.exception("stage3 agent: finalize crashed for session=%s: %s",
                                               live.dialogue.state.session_id, e)
 

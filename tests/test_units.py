@@ -96,7 +96,7 @@ def test_missing_api_key(monkeypatch):
 
 def test_every_prompt_file_loads():
     files = sorted(PROMPTS_DIR.glob("*/*.md"))
-    assert len(files) == 12
+    assert len(files) == 14
     for f in files:
         assert load_prompt(f.parent.name, f.name).text.strip()
 

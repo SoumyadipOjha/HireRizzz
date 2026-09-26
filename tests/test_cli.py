@@ -41,7 +41,8 @@ def test_simulate_call_with_script(ctx, data_dir, tmp_path, monkeypatch, capsys)
     run_stage2(ctx, FakeLLM())
     aarav = next(e for e in ctx.index.all() if e.display_name == "Aarav Sharma")
     script = tmp_path / "answers.txt"
-    script.write_text("\n".join(["yes"] + [f"answer {i}" for i in range(7)]), encoding="utf-8")
+    n = len(ctx.config.questions.questions)
+    script.write_text("\n".join(["yes"] + [f"answer {i}" for i in range(n)]), encoding="utf-8")
     monkeypatch.setattr(cli, "_llm", lambda ctx: FakeLLM())
     rc = cli.main(["--data-dir", str(data_dir), "simulate-call", aarav.candidate_id, "--script", str(script)])
     out = capsys.readouterr().out

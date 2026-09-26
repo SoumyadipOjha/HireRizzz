@@ -17,7 +17,13 @@ from screening.config import load_config
 from screening.context import RunContext
 from screening.llm.base import LLMClient, LLMResponseError
 from screening.paths import PROJECT_ROOT
-from screening.schemas import AgentTurnLLM, ResumeExtractionLLM, ShortlistAssessmentLLM, TranscriptParseLLM
+from screening.schemas import (
+    AgentTurnLLM,
+    InterviewEvaluationLLM,
+    ResumeExtractionLLM,
+    ShortlistAssessmentLLM,
+    TranscriptParseLLM,
+)
 
 SAMPLES = PROJECT_ROOT / "samples"
 
@@ -80,6 +86,23 @@ TRANSCRIPT_PARSE = {
 }
 
 
+INVENTED_QUOTE = "I single-handedly migrated forty microservices to Rust"
+
+
+def interview_evaluation(prompt: str, scores=(80, 70, 75, 90)) -> dict:
+    """Stage 4 answer quoting the candidate's real lines (from the prompt's transcript),
+    plus one invented quote that Stage 4 must reject."""
+    said = [ln.split(":", 1)[1].strip() for ln in prompt.splitlines() if ln.startswith("Candidate:")] or ["-"]
+    pick = lambda i: [said[min(i, len(said) - 1)]]  # noqa: E731
+    return {
+        "role_knowledge": {"score": scores[0], "evidence_quotes": pick(1), "rationale": "Specific."},
+        "problem_solving": {"score": scores[1], "evidence_quotes": pick(2), "rationale": "Clear."},
+        "communication": {"score": scores[2], "evidence_quotes": pick(3) + [INVENTED_QUOTE], "rationale": "Ok."},
+        "motivation": {"score": scores[3], "evidence_quotes": pick(0), "rationale": "Keen."},
+        "concerns": [], "summary": "Solid interview.",
+    }
+
+
 def turn(intent, resolved, say, note=None):
     return {"candidate_intent": intent, "current_step_resolved": resolved, "reschedule_note": note, "say": say}
 
@@ -108,6 +131,8 @@ class FakeLLM(LLMClient):
             return schema.model_validate(ASSESSMENTS[key])
         if schema is TranscriptParseLLM:
             return schema.model_validate(TRANSCRIPT_PARSE)
+        if schema is InterviewEvaluationLLM:
+            return schema.model_validate(interview_evaluation(prompt))
         if schema is AgentTurnLLM:
             item = self.agent_script.pop(0) if self.agent_script else turn("answer", True, "Thanks. Next question?")
             if isinstance(item, Exception):
