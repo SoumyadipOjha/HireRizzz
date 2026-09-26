@@ -18,16 +18,22 @@ class FallbackClient(LLMClient):
         self.model = clients[0].model
         self._log = logger
 
+    def _order(self) -> list[LLMClient]:
+        """Models known to be out of quota go last (still tried if nothing else answers)."""
+        cool = [c for c in self.clients if getattr(c, "cooling_down", lambda: False)()]
+        return [c for c in self.clients if c not in cool] + cool
+
     def generate_json(self, *, system, prompt, schema, temperature=None):
         last = None
-        for c in self.clients:
+        order = self._order()
+        for c in order:
             try:
                 out = c.generate_json(system=system, prompt=prompt, schema=schema, temperature=temperature)
                 self.provider, self.model = c.provider, c.model
                 return out
             except LLMError as e:
                 last = e
-                if self._log and c is not self.clients[-1]:
+                if self._log and c is not order[-1]:
                     self._log.warning("LLM %s/%s failed (%s); trying the next fallback model", c.provider, c.model,
                                       str(e)[:160])
         raise last

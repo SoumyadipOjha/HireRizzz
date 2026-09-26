@@ -12,6 +12,14 @@ export default function PostJobModal({ onClose, onPosted, edit = null }) {
   const [company, setCompany] = useState("");
   const [draft, setDraft] = useState(edit ? { job: edit.job, questions: edit.questions } : null);
   const [busy, setBusy] = useState(null);
+  const [secs, setSecs] = useState(0);
+
+  useEffect(() => {
+    if (busy !== "draft") return undefined;
+    setSecs(0);
+    const t = setInterval(() => setSecs((x) => x + 1), 1000);
+    return () => clearInterval(t);
+  }, [busy]);
 
   useEffect(() => {
     if (edit) return;
@@ -100,9 +108,19 @@ export default function PostJobModal({ onClose, onPosted, edit = null }) {
               <input className="input" maxLength={80} value={company} onChange={(e) => setCompany(e.target.value)} />
             </label>
             <button className="btn" style={{ alignSelf: "flex-end" }} disabled={busy === "draft" || brief.trim().length < 20} onClick={write}>
-              {busy === "draft" ? <><Spinner /> Drafting…</> : draft ? "Draft again with AI" : "Draft with AI"}
+              {busy === "draft" ? <><Spinner /> Drafting… {secs}s</> : draft ? "Draft again with AI" : "Draft with AI"}
             </button>
           </div>
+          {busy === "draft" && (
+            <div className="draft-progress">
+              <div className="draft-bar"><span style={{ width: `${Math.min(95, 100 * (1 - Math.exp(-secs / 9)))}%` }} /></div>
+              <span className="faint small">
+                {secs < 12 ? "The AI is writing the description, skills and interview questions: usually 5–15 seconds."
+                  : secs < 30 ? "Still writing. The main AI model may be busy, so a backup model is answering."
+                  : "Taking longer than usual: the server may be waking up after a quiet spell (up to a minute)."}
+              </span>
+            </div>
+          )}
         </div>
       )}
 

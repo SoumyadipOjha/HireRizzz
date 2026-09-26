@@ -510,6 +510,9 @@ details > summary:hover { color: var(--text); }
 @keyframes pop { from { transform: translateY(10px) scale(.98); opacity: 0; } }
 .bar > span { background: var(--grad); transition: width .9s cubic-bezier(.2,.8,.2,1); }
 
+.draft-progress { display: flex; flex-direction: column; gap: 6px; }
+.draft-bar { height: 4px; border-radius: 99px; background: var(--surface-2); overflow: hidden; }
+.draft-bar span { display: block; height: 100%; background: var(--grad); transition: width 1s linear; }
 .li-text { font-size: 13.5px; line-height: 1.6; min-height: 340px; }
 .modal-foot .grow { flex: 1; }
 

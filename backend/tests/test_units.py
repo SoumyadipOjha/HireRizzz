@@ -248,3 +248,56 @@ def test_fallback_client_uses_the_next_model():
     assert f.generate_json(system="s", prompt="p", schema=R).ok and f.model == "b"
     with pytest.raises(LLMError, match="b down"):
         FallbackClient([C("a", True), C("b", True)]).generate_json(system="s", prompt="p", schema=R)
+
+
+def test_a_model_out_of_quota_is_skipped_not_retried(monkeypatch):
+    import time as _time
+
+    from google.genai import errors
+
+    from screening.llm import FallbackClient
+    from screening.llm import gemini
+    from screening.llm.base import LLMError
+    from screening.llm.gemini import GeminiClient
+
+    class R(__import__("pydantic").BaseModel):
+        ok: bool
+
+    class Resp:
+        text, candidates, prompt_feedback = '{"ok": true}', [], None
+
+    monkeypatch.setattr(gemini, "_cooldown", {})
+    quota = errors.APIError(429, {"error": {"code": 429, "status": "RESOURCE_EXHAUSTED",
+                                            "message": "You exceeded your current quota",
+                                            "details": [{"@type": "type.googleapis.com/google.rpc.RetryInfo",
+                                                         "retryDelay": "120s"}]}})
+    calls = {"main": 0, "backup": 0}
+
+    def main_gen(**kw):
+        calls["main"] += 1
+        raise quota
+
+    def backup_gen(**kw):
+        calls["backup"] += 1
+        return Resp()
+
+    main, backup = GeminiClient(api_key="k", model="main"), GeminiClient(api_key="k", model="backup")
+    main._sleep = backup._sleep = lambda s: (_ for _ in ()).throw(AssertionError("no waiting on a used-up quota"))
+    monkeypatch.setattr(main._client.models, "generate_content", main_gen)
+    monkeypatch.setattr(backup._client.models, "generate_content", backup_gen)
+
+    f = FallbackClient([main, backup])
+    assert f.generate_json(system="s", prompt="p", schema=R).ok and f.model == "backup"
+    assert calls == {"main": 1, "backup": 1}                     # asked once, no retries
+    assert 100 < gemini.cooling_until("main") - _time.time() <= 120  # Google's retryDelay
+    f.generate_json(system="s", prompt="p", schema=R)
+    f.generate_json(system="s", prompt="p", schema=R)
+    assert calls == {"main": 1, "backup": 3}                     # skipped while it cools down
+
+    def backup_down(**kw):
+        raise errors.APIError(400, {"error": {"code": 400, "status": "X", "message": "bad"}})
+
+    monkeypatch.setattr(backup._client.models, "generate_content", backup_down)
+    with pytest.raises(LLMError, match="RESOURCE_EXHAUSTED"):   # nothing else answers: the cooled model is tried last
+        f.generate_json(system="s", prompt="p", schema=R)
+    assert calls["main"] == 2

@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 import copy
+import re
+import threading
 import time
 from typing import Any
 
@@ -14,6 +16,38 @@ from .base import LLMClient, LLMError, LLMResponseError, T, parse_json_response
 
 # Gemini errors worth one more try after a short wait: 429 rate limit, 503 overloaded.
 TRANSIENT_CODES = {429, 503}
+
+# A model whose quota is used up is skipped until Google says it resets (shared by every client in
+# this process, so one refusal isn't paid for again on every request).
+DEFAULT_COOLDOWN_SECONDS = 600
+MAX_COOLDOWN_SECONDS = 3600
+_cooldown: dict[str, float] = {}
+_cooldown_lock = threading.Lock()
+
+
+def cooling_until(model: str) -> float:
+    with _cooldown_lock:
+        return _cooldown.get(model, 0.0)
+
+
+def _cool(model: str, seconds: float) -> None:
+    with _cooldown_lock:
+        _cooldown[model] = time.time() + max(30.0, min(seconds, MAX_COOLDOWN_SECONDS))
+
+
+def _quota_exhausted(e: errors.APIError) -> bool:
+    """429 because the quota is used up (per day / per minute), not a momentary burst."""
+    return e.code == 429 and "quota" in f"{e.status} {e.message}".lower()
+
+
+def _retry_delay(e: errors.APIError) -> float:
+    """Google's RetryInfo.retryDelay ("34s"), or the default cooldown."""
+    for d in ((e.details or {}).get("error", {}) or {}).get("details", []) if isinstance(e.details, dict) else []:
+        m = re.match(r"^(\d+(?:\.\d+)?)s$", str(d.get("retryDelay", "")))
+        if m:
+            return float(m.group(1))
+    return DEFAULT_COOLDOWN_SECONDS
+
 
 # Keys from Pydantic's JSON Schema that Gemini's response_schema (OpenAPI subset) does not accept.
 _DROP_KEYS = {"title", "additionalProperties", "default", "$defs", "examples"}
@@ -82,6 +116,9 @@ class GeminiClient(LLMClient):
             ),
         )
 
+    def cooling_down(self) -> bool:
+        return cooling_until(self.model) > time.time()
+
     def generate_json(self, *, system: str, prompt: str, schema: type[T], temperature: float | None = None) -> T:
         config = types.GenerateContentConfig(
             system_instruction=system,
@@ -94,6 +131,9 @@ class GeminiClient(LLMClient):
                 resp = self._client.models.generate_content(model=self.model, contents=prompt, config=config)
                 break
             except errors.APIError as e:
+                if _quota_exhausted(e):  # waiting a few seconds won't help: skip this model for a while
+                    _cool(self.model, _retry_delay(e))
+                    raise LLMError(f"Gemini API error {e.code} {e.status}: {e.message}") from e
                 # Overloaded (503) / rate-limited (429) are temporary: wait briefly and try again.
                 # Everything else fails at once (log-and-skip).
                 if e.code in TRANSIENT_CODES and attempt < len(self.retry_delays):
