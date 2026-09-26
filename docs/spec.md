@@ -375,6 +375,6 @@ CSP, 16 KB body cap, sessions persisted after every turn.
 6. Only `.docx` is supported (as stated in the kickoff). `.doc`/`.pdf` in the input folder are registered and then fail Stage 1.
 7. Test resumes in `samples/` are synthetic placeholders until the owner provides the real 3.
 8. Stage 2 is scored "blind": name, email, phone, LinkedIn and location are removed from the profile sent to the LLM.
-9. `job_description.yaml` has a `company_name` (used by the call agent to introduce itself); placeholder `Example Corp`.
+9. `job_description.yaml` has a `company_name` (used by the call agent to introduce itself); set to `Kanerika Inc`.
 10. The call agent discloses it is an AI and that the call is recorded (consent), and honours opt-out requests.
 11. Browser speech recognition in Chrome/Edge is processed by the browser vendor's cloud service; this is disclosed on the landing page, and candidates can type instead.

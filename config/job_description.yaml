@@ -1,7 +1,7 @@
 # The role that Stage 2 scores candidates against. Replace with the real JD.
 job_id: python-backend-engineer-001
 title: Python Backend Engineer
-company_name: Example Corp   # used by the Stage 3 call agent when introducing itself
+company_name: Kanerika Inc   # shown to candidates: call agent introduction, emails, interview page
 location: Hyderabad, India (hybrid)
 min_experience_years: 3
 max_experience_years: 8

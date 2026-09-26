@@ -39,7 +39,7 @@ def test_draft_is_not_live_until_approved(jd_ctx):
     ctx, cfg_dir = jd_ctx
     before = (cfg_dir / "job_description.yaml").read_text(encoding="utf-8")
     d = draft_jd(ctx.config, FakeLLM(), BRIEF)
-    assert d["job"]["title"] == "Data Engineer" and d["job"]["company_name"] == "Example Corp"
+    assert d["job"]["title"] == "Data Engineer" and d["job"]["company_name"] == "Kanerika Inc"
     assert d["job"]["job_id"].startswith("data-engineer-")
     assert d["language_notes"] and load_draft(ctx.config)["job"]["title"] == "Data Engineer"
     assert (cfg_dir / "job_description.yaml").read_text(encoding="utf-8") == before  # nothing published yet

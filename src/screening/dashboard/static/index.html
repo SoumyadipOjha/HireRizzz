@@ -289,8 +289,6 @@ tbody tr.static:hover td { background: inherit; }
     <div class="spacer"></div>
     <div class="meta">
       <span class="chip" title="Auto-refreshes every 5 seconds"><span class="live-dot" id="livedot"></span><span id="updated">—</span></span>
-      <span class="chip mono" id="llmchip" title="LLM configured in config/settings.yaml (each record shows the model that actually produced it)">—</span>
-      <span class="chip mono" id="datachip" title="Data directory">—</span>
       <button class="iconbtn" id="theme" title="Toggle light/dark">◐</button>
     </div>
   </header>
@@ -465,9 +463,6 @@ function renderAll() {
   const ov = state.ov;
   const job = ov.job;
   $("jobline").textContent = job ? `${job.title} · ${job.company_name} · job_id ${job.job_id}` : "Job description could not be loaded";
-  $("llmchip").textContent = `configured: ${ov.llm.provider} / ${ov.llm.model}`;
-  $("datachip").textContent = ov.data_dir.split("/").slice(-2).join("/");
-  $("datachip").title = "Data directory: " + ov.data_dir;
   $("logpath").textContent = ov.data_dir + "/logs/pipeline.log";
 
   const banners = $("banners"); banners.replaceChildren();
