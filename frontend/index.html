@@ -1012,8 +1012,22 @@ function credibilitySection(c, rec) {
         delete state.detailCache[c.candidate_id]; state.sig = null; await refresh(); selectCandidate(c.candidate_id, { keepScroll: true });
       } catch (err) { toast("Couldn't clear: " + err.message, true); clear.disabled = false; }
     };
+    const note = c.notifications?.credibility;
+    const ask = h("button", { class: "btn", style: "padding:4px 10px;font-size:12px" }, note && (note.status === "sent" || note.status === "outbox") ? "Resend email" : "Email the candidate");
+    ask.onclick = async () => {
+      if (!confirm(`Email ${c.display_name} the ${s?.red || 0} mismatch(es) and ask for an updated resume or an explanation?`)) return;
+      ask.disabled = true;
+      try {
+        const r = await postJSON(`/api/candidate/${c.candidate_id}/request-clarification`, {});
+        toast(r.status === "sent" || r.status === "outbox" ? `Email ${r.status} to ${r.to}.` : `Not sent: ${r.error || r.status}`, !(r.status === "sent" || r.status === "outbox"));
+        delete state.detailCache[c.candidate_id]; state.sig = null; await refresh(); selectCandidate(c.candidate_id, { keepScroll: true });
+      } catch (err) { toast("Couldn't send: " + err.message, true); ask.disabled = false; }
+    };
+    const noteLine = note ? `Asked the candidate to clarify: email ${note.status}${note.to ? " to " + note.to : ""} · ${fmtTime(note.at)}${note.error ? " — " + note.error : ""}`
+                          : "The candidate hasn't been asked to clarify yet.";
     return h("div", { class: "fraudbox" },
       h("div", {}, h("b", {}, "🚫 Fraud detected: "), `${s?.red || 0} issue${s?.red === 1 ? "" : "s"} below. This candidate is stopped: no scoring, invite, interview or approval.`),
+      h("div", { class: "row" }, h("span", { class: "small", style: "flex:1;min-width:200px" }, noteLine), ask),
       h("div", { class: "row" }, reason, clear));
   })() : c.fraud_cleared ? h("div", { class: "small muted", style: "margin-bottom:10px" },
       `Flags cleared by ${c.fraud_cleared.by} on ${fmtTime(c.fraud_cleared.at)}: “${c.fraud_cleared.note || ""}”. New issues would stop them again.`) : null;

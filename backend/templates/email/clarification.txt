@@ -1,0 +1,10 @@
+Hi {{first_name}},
+
+Thank you for applying for {{job_title}} at {{company_name}}. While reviewing your application, we couldn't match some details in your resume with other information we have:
+
+{{items}}
+
+This often has a simple explanation, such as an out-of-date LinkedIn profile or a typo in the dates. Could you please reply to this email with an updated resume, or a short note explaining the differences? We'll continue with your application as soon as we hear back.
+
+Thank you,
+The {{company_name}} recruiting team

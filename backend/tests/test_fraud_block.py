@@ -88,3 +88,39 @@ def test_blocking_can_be_turned_off(ctx, monkeypatch):
     run_stage1(ctx, FakeLLM())
     e = next(x for x in ctx.index.all() if x.display_name == "Aarav Sharma")
     assert e.credibility.red >= 1 and not e.fraud_blocked             # flagged, but not stopped
+
+
+# ---------------------------------------------------------------- clarification email to the candidate
+
+def _clarifications(ctx):
+    from test_email import outbox
+
+    return outbox(ctx, "clarification")
+
+
+def test_candidate_is_emailed_the_mismatches_once(faker):
+    ctx, cid = faker
+    [msg] = _clarifications(ctx)                                        # sent automatically when stopped
+    assert msg["To"] == "aarav@example.com" and "a few details to confirm" in msg["Subject"]
+    text = msg.get_body(("plain",)).get_content()
+    assert "Your resume mentions 20 years of experience" in text        # reworded for the candidate
+    assert "reply to this email" in text.lower()
+    assert "fraud" not in (text + msg.get_body(("html",)).get_content()).lower()  # never accuse
+    note = ctx.index.get(cid).notifications["credibility"]
+    assert note.kind == "clarification" and note.status == "outbox" and note.to == "aarav@example.com"
+
+    check_resume(ctx, cid)                                              # same issues again: no second email
+    assert len(_clarifications(ctx)) == 1
+
+
+def test_manual_mode_only_emails_on_request(ctx, monkeypatch):
+    from screening.credibility import request_clarification
+
+    monkeypatch.setitem(PROFILES["Aarav Sharma"], "total_experience_years", 20.0)
+    ctx.config.settings.credibility.email_candidate_on_fraud = "manual"
+    ingest(ctx)
+    run_stage1(ctx, FakeLLM())
+    cid = next(e.candidate_id for e in ctx.index.all() if e.display_name == "Aarav Sharma")
+    assert ctx.index.get(cid).fraud_blocked and _clarifications(ctx) == []
+    n = request_clarification(ctx, cid)                                  # the recruiter's button
+    assert n.status == "outbox" and len(_clarifications(ctx)) == 1

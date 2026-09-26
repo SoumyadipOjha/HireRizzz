@@ -105,6 +105,9 @@ class CredibilityConfig(_Strict):
     block_on_fraud: bool = True           # red issues stop the candidate before any further stage
     min_red_to_block: int = Field(default=1, ge=1)   # how many red issues count as "fraud detected"
     company_check: bool = True            # look each employer up in public records (Wikidata) + website
+    # When a candidate is stopped: auto = email them the mismatches and ask for an updated resume,
+    # manual = only when a recruiter clicks the button, off = never.
+    email_candidate_on_fraud: Literal["auto", "manual", "off"] = "auto"
 
 
 class ApprovalsConfig(_Strict):

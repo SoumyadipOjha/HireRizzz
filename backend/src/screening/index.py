@@ -152,7 +152,7 @@ class CandidateIndex:
         self.save(candidate_id)
         return entry
 
-    def set_notification(self, candidate_id: str, gate: ReviewGate, notification: Notification) -> CandidateEntry:
+    def set_notification(self, candidate_id: str, gate: str, notification: Notification) -> CandidateEntry:
         entry = self.get(candidate_id)
         entry.notifications[gate] = notification
         entry.updated_at = utc_now()

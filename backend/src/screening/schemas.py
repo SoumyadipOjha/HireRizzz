@@ -67,7 +67,7 @@ class Review(_Model):
 
 class Notification(_Model):
     """A result email to the candidate (approvals.py)."""
-    kind: str                             # resume_rejected | selected | not_selected
+    kind: str                             # resume_rejected | selected | not_selected | clarification
     status: Literal["sent", "outbox", "failed", "skipped"]
     to: str | None = None
     at: str
@@ -85,7 +85,8 @@ class CandidateEntry(_Model):
     overall_status: OverallStatus = "active"
     stages: dict[StageName, StageState] = Field(default_factory=lambda: {s: StageState() for s in STAGES})
     reviews: dict[ReviewGate, Review] = Field(default_factory=dict)
-    notifications: dict[ReviewGate, Notification] = Field(default_factory=dict)  # keyed by the gate it follows
+    # keyed by what it follows: the "shortlist" / "final" gate, or "credibility" (the clarification request)
+    notifications: dict[Literal["shortlist", "final", "credibility"], Notification] = Field(default_factory=dict)
     credibility: "CredibilitySummary | None" = None  # resume checks / LinkedIn cross-check (credibility.py)
     fraud_blocked: bool = False            # stopped by the credibility checks (no further stages)
     fraud_cleared: "FraudClearance | None" = None   # a recruiter looked and let the candidate continue

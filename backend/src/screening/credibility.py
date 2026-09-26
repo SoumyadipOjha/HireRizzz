@@ -346,7 +346,63 @@ def save_record(ctx, record: CredibilityRecord) -> CredibilityRecord:
         if inv := invites.active_for(record.candidate_id):
             invites.update(inv.token, status="revoked")
             ctx.logger.info("credibility: candidate_id=%s interview link revoked", record.candidate_id)
+        if cc.email_candidate_on_fraud == "auto":
+            try:
+                request_clarification(ctx, record.candidate_id, record=record)
+            except Exception as e:  # an email problem never undoes the block
+                ctx.logger.error("credibility: candidate_id=%s clarification email not sent: %s", record.candidate_id, e)
     return record
+
+
+def candidate_wording(flag: CredibilityFlag) -> str:
+    """One mismatch, phrased for the candidate (no internal labels, never the word 'fraud')."""
+    msg = flag.message.replace("The resume claims ", "Your resume mentions ", 1)
+    if msg.startswith("Claims "):
+        msg = "Your resume mentions " + msg[len("Claims "):]
+    msg = msg.replace(" is on the resume but not on LinkedIn.", " is on your resume but not on your LinkedIn profile.")
+    lines = [f"- {msg}"]
+    if flag.resume and flag.resume != "(not listed)" and flag.linkedin:
+        lines.append(f"   Resume: {flag.resume}")
+    if flag.linkedin and flag.linkedin != "(not listed)":
+        lines.append(f"   LinkedIn: {flag.linkedin}")
+    return "\n".join(lines)
+
+
+def request_clarification(ctx, candidate_id: str, *, record: CredibilityRecord | None = None, mailer=None):
+    """Email the candidate the red mismatches and ask for an updated resume or an explanation."""
+    from .agent.notify import candidate_contact, first_name
+    from .config import ConfigError
+    from .mailer import EmailError, make_mailer, render_email, valid_email
+    from .schemas import Notification
+
+    record = record or load_record(ctx.config, candidate_id)
+    entry = ctx.index.get(candidate_id)
+    reds = [f for f in (record.flags if record else []) if f.level == "red"]
+    if not reds:
+        raise ValueError("there are no mismatches to ask the candidate about")
+    try:
+        name, address = candidate_contact(ctx.config, entry)
+    except Exception:
+        name, address = entry.display_name, None
+    job = ctx.config.job
+    if not valid_email(address):
+        n = Notification(kind="clarification", status="skipped", at=utc_now(), error="no valid email address in the resume")
+    else:
+        try:
+            mailer = mailer or make_mailer(ctx.config)
+            mailer.send(render_email("clarification", to=address,
+                                     subject=f"Your application for {job.title}: a few details to confirm",
+                                     values={"first_name": first_name(name), "job_title": job.title,
+                                             "company_name": job.company_name,
+                                             "items": "\n\n".join(candidate_wording(f) for f in reds)}))
+            n = Notification(kind="clarification", status="outbox" if mailer.mode == "outbox" else "sent",
+                             to=address, at=utc_now())
+        except (EmailError, ConfigError) as e:
+            n = Notification(kind="clarification", status="failed", to=address, at=utc_now(), error=str(e)[:500])
+    ctx.index.set_notification(candidate_id, "credibility", n)
+    (ctx.logger.error if n.status == "failed" else ctx.logger.info)(
+        "credibility: candidate_id=%s clarification email %s%s", candidate_id, n.status, f" ({n.error})" if n.error else "")
+    return n
 
 
 def clear_fraud(ctx, candidate_id: str, *, by: str, note: str | None = None):

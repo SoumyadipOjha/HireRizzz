@@ -62,6 +62,7 @@ MAX_RESUME_BYTES = 10 * 1024 * 1024
 _UUID = re.compile(r"^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$")
 _LINKEDIN_API = re.compile(r"^/api/candidate/([0-9a-f-]{36})/linkedin$")
 _CLEAR_FRAUD_API = re.compile(r"^/api/candidate/([0-9a-f-]{36})/clear-fraud$")
+_CLARIFY_API = re.compile(r"^/api/candidate/([0-9a-f-]{36})/request-clarification$")
 _INTERVIEW_API = re.compile(r"^/api/interview/([A-Za-z0-9_-]+)/(info|code|verify|start|turn|end)$")
 _CSP = ("default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; "
         "connect-src 'self'; img-src 'self' data:; frame-ancestors 'none'; base-uri 'none'; form-action 'none'")
@@ -298,6 +299,15 @@ class DashboardAPI:
                 self.ctx.logger.warning("credibility: candidate_id=%s checks failed: %s", cid, e)
         return rec.model_dump(mode="json") if rec else None
 
+    def request_clarification(self, cid: str) -> dict:
+        """Email the candidate the mismatches and ask for an updated resume (manual send / resend)."""
+        from ..credibility import request_clarification
+
+        with self.ctx.lock:
+            self.ctx.index.reload().get(cid)
+            n = request_clarification(self.ctx, cid, mailer=self._mailer())
+        return n.model_dump(mode="json")
+
     def clear_fraud(self, cid: str, body: dict) -> dict:
         """A recruiter reviewed the flags: the candidate continues (resume scoring runs in the background)."""
         from ..credibility import clear_fraud
@@ -498,7 +508,7 @@ class Handler(BaseHTTPRequestHandler):
             if m := _INTERVIEW_API.match(path):
                 return self._interview(m.group(1), m.group(2), method="POST")
             if path in ("/api/approve/shortlist", "/api/approve/final", "/api/send-results", "/api/jd/draft",
-                        "/api/jd/approve", "/api/resumes") or _LINKEDIN_API.match(path) or _CLEAR_FRAUD_API.match(path):
+                        "/api/jd/approve", "/api/resumes") or _LINKEDIN_API.match(path) or _CLEAR_FRAUD_API.match(path)                     or _CLARIFY_API.match(path):
                 return self._dashboard_action(path)
             return self._json({"error": "not found"}, HTTPStatus.NOT_FOUND)
         except Exception as e:
@@ -542,6 +552,8 @@ class Handler(BaseHTTPRequestHandler):
                 return self._json(self.api.upload_linkedin(m.group(1), body))
             if m := _CLEAR_FRAUD_API.match(path):
                 return self._json(self.api.clear_fraud(m.group(1), body))
+            if m := _CLARIFY_API.match(path):
+                return self._json(self.api.request_clarification(m.group(1)))
             if path == "/api/resumes":
                 return self._json(self.api.upload_resumes(body))
             if path == "/api/send-results":
