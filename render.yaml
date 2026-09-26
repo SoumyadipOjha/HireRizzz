@@ -1,0 +1,38 @@
+# Render blueprint for the HireRizz backend (Render -> New -> Blueprint -> pick this repo).
+# Secrets are marked sync: false: Render asks for their values when you create the service.
+services:
+  - type: web
+    name: hirerizz-backend
+    runtime: python
+    rootDir: backend
+    plan: free
+    buildCommand: pip install uv && uv sync --frozen --no-dev
+    startCommand: uv run --no-sync screening serve --host 0.0.0.0 --port $PORT --no-browser
+    healthCheckPath: /api/health
+    envVars:
+      - key: PYTHON_VERSION
+        value: "3.12.7"
+      - key: GEMINI_API_KEY
+        sync: false
+      - key: MONGODB_URI            # MongoDB Atlas connection string (Render can't reach your local MongoDB)
+        sync: false
+      - key: MONGODB_DB_NAME
+        value: hirerizz
+      - key: SMTP_HOST
+        value: smtp.gmail.com
+      - key: SMTP_PORT
+        value: "587"
+      - key: SMTP_SECURITY
+        value: starttls
+      - key: SMTP_USER
+        sync: false
+      - key: SMTP_PASS              # 16-character Gmail app password
+        sync: false
+      - key: EMAIL_FROM_ADDRESS
+        sync: false
+      - key: CORS_ORIGINS           # your Vercel URL, e.g. https://hirerizz.vercel.app
+        sync: false
+      - key: PUBLIC_BASE_URL        # same Vercel URL: interview links in emails point there
+        sync: false
+      - key: DASHBOARD_PUBLIC       # no login: anyone with the dashboard URL can see and approve candidates
+        value: "true"

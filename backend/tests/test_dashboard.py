@@ -103,3 +103,23 @@ def test_upload_resumes_screens_them(ctx):
     finally:
         httpd.shutdown()
         httpd.server_close()
+
+
+def test_cors_only_for_the_configured_frontend(server, monkeypatch):
+    base, _ = server
+    monkeypatch.setenv("CORS_ORIGINS", "https://hirerizz.vercel.app")
+
+    def call(method, origin):
+        req = urllib.request.Request(base + "/api/overview", method=method, headers={"Origin": origin})
+        try:
+            with urllib.request.urlopen(req) as r:
+                return r.status, r.headers.get("Access-Control-Allow-Origin")
+        except urllib.error.HTTPError as e:
+            return e.code, e.headers.get("Access-Control-Allow-Origin")
+
+    assert call("OPTIONS", "https://hirerizz.vercel.app") == (204, "https://hirerizz.vercel.app")
+    assert call("GET", "https://hirerizz.vercel.app") == (200, "https://hirerizz.vercel.app")
+    assert call("OPTIONS", "https://evil.example")[0] == 403
+    assert call("GET", "https://evil.example") == (200, None)  # the browser won't let that site read it
+    with urllib.request.urlopen(base + "/api/health") as r:
+        assert json.loads(r.read())["ok"] is True

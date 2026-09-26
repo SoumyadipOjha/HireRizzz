@@ -4,6 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>HireRizz · Screening Dashboard</title>
+<script src="/config.js"></script>
 <style>
 :root {
   --bg: #f6f7f9; --surface: #ffffff; --surface-2: #f1f3f6; --border: #e3e6eb;
@@ -411,8 +412,10 @@ const state = { ov: null, sig: null, selected: null, filter: "all", q: "", tab: 
 })();
 
 // ---------- data ----------
+// The backend's address: "" when this page is served by the backend itself (local), else from config.js.
+const API_BASE = String(window.HIRERIZZ_API || "").replace(/\/+$/, "");
 async function getJSON(url) {
-  const r = await fetch(url, { cache: "no-store" });
+  const r = await fetch(API_BASE + url, { cache: "no-store" });
   if (!r.ok) throw new Error(`${url}: HTTP ${r.status}`);
   return r.json();
 }
@@ -789,7 +792,7 @@ function toast(msg, isErr) {
 }
 
 async function postJSON(url, body) {
-  const r = await fetch(url, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body || {}) });
+  const r = await fetch(API_BASE + url, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body || {}) });
   let data = {}; try { data = await r.json(); } catch (e) {}
   if (!r.ok) throw new Error(data.error || `HTTP ${r.status}`);
   return data;
@@ -934,7 +937,7 @@ async function loadResults() {
   $("resultsview").replaceChildren(h("div", { class: "card" },
     h("div", { class: "cardhead" }, h("h2", {}, "Final results"),
       h("span", { class: "muted" }, "Candidates who were interviewed, after the hiring manager's approval"),
-      h("span", { class: "spacer" }), send, h("a", { class: "btn", href: "/api/results.csv" }, "Download CSV")),
+      h("span", { class: "spacer" }), send, h("a", { class: "btn", href: API_BASE + "/api/results.csv" }, "Download CSV")),
     block("Final shortlist", lists.shortlisted, "No one on the final shortlist yet.", "var(--ok)"),
     block("Rejected", lists.rejected, "No final rejections yet.", "var(--bad)"),
     lists.awaiting_approval.length ? block("Waiting for the hiring manager", lists.awaiting_approval, "", "var(--warn)") : null));

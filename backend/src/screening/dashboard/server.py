@@ -11,6 +11,7 @@
 from __future__ import annotations
 
 import ipaddress
+import os
 import json
 import re
 import threading
@@ -24,11 +25,27 @@ from urllib.parse import parse_qs, urlparse
 from ..agent.invites import TOKEN_RE, InviteError, InviteStore
 from ..agent.verification import VerificationError
 from ..config import AppConfig, ConfigError
+from ..paths import PROJECT_ROOT
 from ..llm.base import LLMError
 from ..schemas import STAGES
 from ..stage3_call import answers_for
 
-STATIC = Path(__file__).parent / "static"
+def _frontend_dir() -> Path:
+    """The static pages (../frontend next to backend/). In production they are hosted separately
+    (Vercel) and this server is API-only; locally it serves them too, from the same address."""
+    env = os.environ.get("HIRERIZZ_FRONTEND_DIR", "").strip()
+    return Path(env) if env else PROJECT_ROOT.parent / "frontend"
+
+
+def cors_origins() -> set[str]:
+    """Sites allowed to call this API from a browser, e.g. the Vercel frontend (CORS_ORIGINS, comma-separated)."""
+    return {o.strip().rstrip("/") for o in os.environ.get("CORS_ORIGINS", "").split(",") if o.strip()}
+
+
+def dashboard_public() -> bool:
+    """DASHBOARD_PUBLIC=true: the manager dashboard answers anyone, not just this computer. There is
+    no login, so anyone with the URL can see candidates and approve/reject: the owner's choice."""
+    return os.environ.get("DASHBOARD_PUBLIC", "").strip().lower() in ("1", "true", "yes")
 DEMO_MARKER = "DEMO_DATA.txt"
 MAX_BODY = 16 * 1024
 MAX_UPLOAD_BODY = 30 * 1024 * 1024   # resume upload (base64 JSON): a few files of up to 10 MB
@@ -290,6 +307,13 @@ class Handler(BaseHTTPRequestHandler):
 
     # -------------------------------------------------------------- helpers
 
+    def _dashboard_allowed(self) -> bool:
+        return dashboard_public() or self._is_loopback()
+
+    def _allowed_origin(self) -> str | None:
+        origin = (self.headers.get("Origin") or "").rstrip("/")
+        return origin if origin and origin in cors_origins() else None
+
     def _is_loopback(self) -> bool:
         try:
             return ipaddress.ip_address(self.client_address[0].split("%")[0]).is_loopback
@@ -304,6 +328,9 @@ class Handler(BaseHTTPRequestHandler):
         self.send_header("X-Content-Type-Options", "nosniff")
         self.send_header("Referrer-Policy", "no-referrer")  # interview URLs carry a secret token
         self.send_header("Content-Security-Policy", _CSP)
+        if origin := self._allowed_origin():  # the separately hosted frontend
+            self.send_header("Access-Control-Allow-Origin", origin)
+            self.send_header("Vary", "Origin")
         for k, v in (extra or {}).items():
             self.send_header(k, v)
         self.end_headers()
@@ -313,7 +340,12 @@ class Handler(BaseHTTPRequestHandler):
         self._send(status, json.dumps(obj, ensure_ascii=False).encode("utf-8"), "application/json; charset=utf-8")
 
     def _page(self, name: str, extra: dict | None = None) -> None:
-        self._send(200, (STATIC / name).read_bytes(), "text/html; charset=utf-8", extra)
+        f = _frontend_dir() / name
+        if not f.is_file():  # API-only deployment: the pages live on the frontend host
+            return self._json({"error": "This is the HireRizz API. Open the frontend site instead."},
+                              HTTPStatus.NOT_FOUND)
+        ctype = "application/javascript; charset=utf-8" if name.endswith(".js") else "text/html; charset=utf-8"
+        self._send(200, f.read_bytes(), ctype, extra)
 
     def _body(self, limit: int = MAX_BODY) -> dict:
         n = int(self.headers.get("Content-Length") or 0)
@@ -333,11 +365,15 @@ class Handler(BaseHTTPRequestHandler):
         try:
             if path.startswith("/interview/"):
                 return self._page("interview.html", {"Permissions-Policy": "microphone=(self), camera=()"})
+            if path == "/config.js":
+                return self._page("config.js")
+            if path == "/api/health":
+                return self._json({"ok": True, "service": "hirerizz-backend"})
             if m := _INTERVIEW_API.match(path):
                 return self._interview(m.group(1), m.group(2), method="GET")
 
-            # ---- everything below is the HR dashboard: loopback only ----
-            if not self._is_loopback():
+            # ---- everything below is the HR dashboard: this computer only, unless DASHBOARD_PUBLIC ----
+            if not self._dashboard_allowed():
                 return self._json({"error": "not found"}, HTTPStatus.NOT_FOUND)
             if path in ("/", "/index.html"):
                 return self._page("index.html")
@@ -380,6 +416,19 @@ class Handler(BaseHTTPRequestHandler):
         except Exception as e:
             return self._json({"error": f"{type(e).__name__}: {e}"}, HTTPStatus.INTERNAL_SERVER_ERROR)
 
+    def do_OPTIONS(self):  # noqa: N802
+        """CORS preflight from the separately hosted frontend."""
+        if not self._allowed_origin():
+            return self._json({"error": "origin not allowed"}, HTTPStatus.FORBIDDEN)
+        self.send_response(HTTPStatus.NO_CONTENT)
+        self.send_header("Access-Control-Allow-Origin", self._allowed_origin())
+        self.send_header("Access-Control-Allow-Methods", "GET, POST, OPTIONS")
+        self.send_header("Access-Control-Allow-Headers", "Content-Type")
+        self.send_header("Access-Control-Max-Age", "600")
+        self.send_header("Vary", "Origin")
+        self.send_header("Content-Length", "0")
+        self.end_headers()
+
     def _same_origin_json(self) -> bool:
         """Dashboard actions change data and send email: refuse cross-site requests. A page on
         another site can make the browser POST here, but not with a JSON content type (that
@@ -390,12 +439,12 @@ class Handler(BaseHTTPRequestHandler):
         if origin is None:
             return True  # non-browser clients (curl, tests)
         host = self.headers.get("Host", "")
-        return origin in (f"http://{host}", f"https://{host}")
+        return origin in (f"http://{host}", f"https://{host}") or origin.rstrip("/") in cors_origins()
 
     def _dashboard_action(self, path: str) -> None:
         from ..approvals import ApprovalError
 
-        if not self._is_loopback():
+        if not self._dashboard_allowed():
             return self._json({"error": "not found"}, HTTPStatus.NOT_FOUND)
         if not self._same_origin_json():
             return self._json({"error": "forbidden"}, HTTPStatus.FORBIDDEN)
@@ -480,7 +529,12 @@ def serve(config: AppConfig, port: int = 8765, open_browser: bool = True, host: 
     url = f"http://127.0.0.1:{port}/"
     print(f"Dashboard:  {url}   (storage: {config.store.describe()})", flush=True)
     print(f"Interviews: {config.settings.stage3.public_base_url}/interview/<token>   — Ctrl+C to stop", flush=True)
-    if host not in ("127.0.0.1", "localhost", "::1"):
+    if dashboard_public():
+        print("WARNING: DASHBOARD_PUBLIC is on. The manager dashboard has no login: anyone with its URL can "
+              "see candidates and approve or reject them.", flush=True)
+    if cors_origins():
+        print(f"Frontend:   {', '.join(sorted(cors_origins()))} (CORS)", flush=True)
+    if host not in ("127.0.0.1", "localhost", "::1") and not dashboard_public():
         print(f"Listening on {host}:{port}. The dashboard still answers loopback clients only.", flush=True)
     try:
         config.api_key()

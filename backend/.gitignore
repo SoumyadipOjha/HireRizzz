@@ -1,0 +1,14 @@
+.venv/
+__pycache__/
+*.pyc
+.pytest_cache/
+.env
+# Candidate data is personal data - keep it out of version control.
+data/*
+!data/.gitkeep
+!data/input/
+data/input/*
+!data/input/resumes/
+data/input/resumes/*
+!data/input/resumes/.gitkeep
+demo_runs/

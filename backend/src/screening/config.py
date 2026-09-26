@@ -308,6 +308,14 @@ def load_config(data_dir: Path | None = None, settings_file: Path | None = None,
             raise ConfigError(f"storage backend must be 'file' or 'mongodb' (got {backend!r})")
         settings = settings.model_copy(
             update={"storage": settings.storage.model_copy(update={"backend": backend})})
+    public_url = os.environ.get("PUBLIC_BASE_URL", "").strip()  # where candidates open their interview link
+    if public_url:
+        try:
+            settings = settings.model_copy(
+                update={"stage3": Stage3Config.model_validate({**settings.stage3.model_dump(),
+                                                               "public_base_url": public_url})})
+        except ValidationError as e:
+            raise ConfigError(f"PUBLIC_BASE_URL is invalid: {e}") from e
     email_mode = email or os.environ.get(EMAIL_MODE_ENV, "").strip()
     if email_mode:
         if email_mode not in ("smtp", "outbox"):

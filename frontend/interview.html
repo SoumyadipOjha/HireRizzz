@@ -6,6 +6,7 @@
 <meta name="referrer" content="no-referrer">
 <meta name="robots" content="noindex, nofollow">
 <title>Screening Call</title>
+<script src="/config.js"></script>
 <style>
 :root {
   --bg: #f5f6f8; --surface: #ffffff; --surface-2: #f0f2f5; --border: #e2e5ea;
@@ -191,7 +192,8 @@ footer { margin-top: auto; padding-top: 18px; text-align: center; font-size: 12p
 "use strict";
 const $ = (id) => document.getElementById(id);
 const TOKEN = location.pathname.split("/").filter(Boolean).pop();
-const API = `/api/interview/${encodeURIComponent(TOKEN)}`;
+const API_BASE = String(window.HIRERIZZ_API || "").replace(/\/+$/, "");  // "" = same address (local)
+const API = `${API_BASE}/api/interview/${encodeURIComponent(TOKEN)}`;
 const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
 const canSpeak = "speechSynthesis" in window;
 const canListen = !!SR;
