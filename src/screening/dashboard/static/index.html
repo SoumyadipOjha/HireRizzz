@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Screening Dashboard</title>
+<title>HireRizz · Screening Dashboard</title>
 <style>
 :root {
   --bg: #f6f7f9; --surface: #ffffff; --surface-2: #f1f3f6; --border: #e3e6eb;
@@ -56,7 +56,10 @@ button, input { font: inherit; color: inherit; }
 
 /* header */
 header.top { display: flex; align-items: center; gap: 16px; flex-wrap: wrap; margin-bottom: 18px; }
-.brand h1 { font-size: 18px; margin: 0; letter-spacing: -.01em; }
+.brand h1 { font-size: 18px; margin: 0; letter-spacing: -.01em; display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.brand .logo { display: inline-grid; place-items: center; width: 26px; height: 26px; border-radius: 7px; background: var(--accent);
+  color: var(--surface); font-size: 11px; font-weight: 800; letter-spacing: 0; }
+.brand .tagline { font-size: 12px; font-weight: 500; color: var(--text-2); }
 .brand .sub { color: var(--text-2); font-size: 13px; }
 .spacer { flex: 1; }
 .meta { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; color: var(--text-2); font-size: 12px; }
@@ -280,7 +283,7 @@ tbody tr.static:hover td { background: inherit; }
 <div class="wrap">
   <header class="top">
     <div class="brand">
-      <h1>Screening Dashboard</h1>
+      <h1><span class="logo" aria-hidden="true">HR</span>HireRizz <span class="tagline">Your recruiter's got rizz now</span></h1>
       <div class="sub" id="jobline">Loading…</div>
     </div>
     <div class="spacer"></div>

@@ -1,4 +1,9 @@
-# Recruiting Screening Pipeline (Stages 1–3)
+# HireRizz
+
+*Your recruiter's got rizz now.* AI resume screening, a live voice interview, evidence-backed scoring,
+and approval gates where people make the final call.
+
+## Pipeline
 
 `.docx` / `.pdf` resumes → **Stage 1** structured profile → **Stage 2** shortlist
 decision → **Stage 3** screening call + parsed transcript. Every candidate
