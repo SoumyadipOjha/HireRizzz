@@ -506,12 +506,21 @@ function renderPipeline() {
     const counts = Object.fromEntries(STATUS_ORDER.map((s) => [s, 0]));
     cs.forEach((c) => counts[c.stages[stage].status]++);
     const extra = [];
-    if (stage === "stage2_shortlisting") {
-      const sl = cs.filter((c) => c.stages[stage].decision === "shortlisted").length;
-      const rj = cs.filter((c) => c.stages[stage].decision === "rejected").length;
+    if (stage === "stage2_shortlisting") {  // the resume stage only; the final decision is shown under stage 4
+      const done = cs.filter((c) => c.stages[stage].status === "success");
+      const sl = done.filter((c) => resumeDecision(c) === "shortlisted").length;
+      const rj = done.filter((c) => resumeDecision(c) === "rejected").length;
       extra.push(h("div", { class: "legend", style: "margin-top:6px" },
-        h("span", {}, h("i", { class: "sw", style: "background:var(--ok)" }), `${sl} shortlisted`),
-        h("span", {}, h("i", { class: "sw", style: "background:var(--bad)" }), `${rj} rejected`)));
+        h("span", {}, h("i", { class: "sw", style: "background:var(--ok)" }), `${sl} passed resume screen`),
+        h("span", {}, h("i", { class: "sw", style: "background:var(--bad)" }), `${rj} rejected at resume`)));
+    }
+    if (stage === "stage4_evaluation") {  // the final lists, after the hiring manager's approval
+      const fin = cs.map((c) => c.reviews?.final?.decision).filter(Boolean);
+      const waiting = cs.filter(waitingFinal).length;
+      extra.push(h("div", { class: "legend", style: "margin-top:6px" },
+        h("span", {}, h("i", { class: "sw", style: "background:var(--ok)" }), `${fin.filter((d) => d === "shortlisted").length} final shortlist`),
+        h("span", {}, h("i", { class: "sw", style: "background:var(--bad)" }), `${fin.filter((d) => d === "rejected").length} rejected`),
+        waiting ? h("span", {}, h("i", { class: "sw", style: "background:var(--warn)" }), `${waiting} awaiting manager`) : null));
     }
     if (stage === "stage3_calling" && counts.awaiting)
       extra.push(h("div", { class: "stagenote" }, `${counts.awaiting} interview link${counts.awaiting > 1 ? "s" : ""} waiting for the candidate.`));
