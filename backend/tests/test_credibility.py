@@ -63,6 +63,13 @@ def test_resume_red_and_amber_flags():
                    if f.check == "skill_older_than_tech")                # 3 years of Docker is fine
 
 
+def test_every_years_of_claim_is_checked():
+    from screening.credibility import _years_of_claims
+
+    text = "Brings 5 years of LangChain and 6 years of Microsoft Fabric expertise, 3+ yrs with Docker."
+    assert _years_of_claims(text) == [(5.0, "langchain"), (6.0, "microsoft fabric"), (3.0, "docker")]
+
+
 def test_internships_are_not_flagged_as_overlap_or_early_work():
     p = profile([job("Engineer", "Acme", "2019-07", current=True), job("Intern", "Beta", "2017-01", "2019-12")])
     assert resume_checks(p, "", TODAY) == []

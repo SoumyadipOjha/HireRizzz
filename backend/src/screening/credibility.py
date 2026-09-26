@@ -199,8 +199,10 @@ def resume_checks(profile: ResumeExtractionLLM, resume_text: str | None = None,
     return _dedupe(flags)
 
 
+# The skill name is read in a lookahead so it isn't consumed: in "5 years of LangChain and 6 years of
+# Fabric" the second claim must still be found.
 _YEARS_OF = re.compile(r"(\d{1,2}(?:\.\d)?)\s*\+?\s*(?:years?|yrs?)\s+(?:of\s+)?(?:experience\s+)?(?:in|with|of)?\s*"
-                       r"([a-z][a-z0-9.+# ]{0,24})", re.I)
+                       r"(?=([a-z][a-z0-9.+# ]{0,24}))", re.I)
 
 
 def _years_of_claims(text: str) -> list[tuple[float, str]]:
