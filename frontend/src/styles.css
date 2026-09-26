@@ -513,6 +513,12 @@ details > summary:hover { color: var(--text); }
 .draft-progress { display: flex; flex-direction: column; gap: 6px; }
 .draft-bar { height: 4px; border-radius: 99px; background: var(--surface-2); overflow: hidden; }
 .draft-bar span { display: block; height: 100%; background: var(--grad); transition: width 1s linear; }
+.q-edit { display: flex; flex-direction: column; gap: 6px; padding: 10px 12px; border: 1px solid var(--border); border-radius: 12px; background: var(--surface); }
+.q-edit.fresh { animation: fadeUp .35s cubic-bezier(.2,.8,.2,1); border-color: #c7c2fd; }
+.q-kind { display: inline-block; font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: .05em; padding: 2px 7px; border-radius: 6px; background: var(--surface-2); color: var(--text-2); margin-right: 6px; }
+.q-kind.role { background: var(--accent-soft); color: var(--accent); }
+.add-q { border-style: dashed; color: var(--accent); height: 40px; }
+.add-q:hover:not(:disabled) { background: var(--accent-soft); }
 .li-text { font-size: 13.5px; line-height: 1.6; min-height: 340px; }
 .modal-foot .grow { flex: 1; }
 

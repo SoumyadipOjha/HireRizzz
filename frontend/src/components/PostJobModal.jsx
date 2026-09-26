@@ -68,7 +68,9 @@ export default function PostJobModal({ onClose, onPosted, edit = null }) {
     if (!window.confirm(msg)) return;
     setBusy("post");
     try {
-      const r = await api.postJob(job, draft.questions, by, edit?.jobId);
+      const questions = draft.questions.filter((q) => q.question.trim()).map(({ fresh, ...q }) => ({ ...q, question: q.question.trim() }));
+      if (!questions.length) throw new Error("Add at least one screening question.");
+      const r = await api.postJob(job, questions, by, edit?.jobId);
       toast(edit ? "Job updated." : `Posted ${r.title}.`, "ok");
       onPosted(r.job_id);
     } catch (e) {
@@ -80,6 +82,22 @@ export default function PostJobModal({ onClose, onPosted, edit = null }) {
 
   const setJob = (k, v) => setDraft((d) => ({ ...d, job: { ...d.job, [k]: v } }));
   const setQ = (i, v) => setDraft((d) => ({ ...d, questions: d.questions.map((q, j) => (j === i ? { ...q, question: v } : q)) }));
+  const addQ = () =>
+    setDraft((d) => {
+      const ids = new Set(d.questions.map((q) => q.id));
+      let n = 1;
+      while (ids.has(`logistics_${n}`)) n += 1;
+      return { ...d, questions: [...d.questions, { id: `logistics_${n}`, kind: "logistics", question: "", fresh: true }] };
+    });
+  const removeQ = (i) => setDraft((d) => ({ ...d, questions: d.questions.filter((_, j) => j !== i) }));
+  const moveQ = (i, by) =>
+    setDraft((d) => {
+      const qs = [...d.questions];
+      const k = i + by;
+      if (k < 0 || k >= qs.length) return d;
+      [qs[i], qs[k]] = [qs[k], qs[i]];
+      return { ...d, questions: qs };
+    });
   const j = draft?.job;
 
   return (
@@ -160,13 +178,28 @@ export default function PostJobModal({ onClose, onPosted, edit = null }) {
             <input className="input" placeholder="https://careers.example.com/jobs/…" value={j.apply_url || ""} onChange={(e) => setJob("apply_url", e.target.value)} />
           </label>
           <div className="stack tight">
-            <b>Screening call questions</b>
+            <div className="row between">
+              <b>Screening call questions</b>
+              <span className="faint small">asked in this order · role questions are scored, logistics ones are recorded</span>
+            </div>
             {draft.questions.map((q, i) => (
-              <label key={q.id} className="field">
-                <span>{q.kind === "role" ? "Role question (scored)" : "Logistics question"} · {q.id}</span>
-                <textarea className="textarea" rows={2} value={q.question} onChange={(e) => setQ(i, e.target.value)} />
-              </label>
+              <div key={q.id} className={`q-edit${q.fresh ? " fresh" : ""}`}>
+                <div className="row between">
+                  <span className="small muted">
+                    <b className={q.kind === "role" ? "q-kind role" : "q-kind"}>{q.kind === "role" ? "Role · scored" : "Logistics"}</b> Q{i + 1}
+                  </span>
+                  <span className="row" style={{ gap: 2 }}>
+                    <button type="button" className="btn ghost sm icon" title="Move up" disabled={i === 0} onClick={() => moveQ(i, -1)}>↑</button>
+                    <button type="button" className="btn ghost sm icon" title="Move down" disabled={i === draft.questions.length - 1} onClick={() => moveQ(i, 1)}>↓</button>
+                    <button type="button" className="btn ghost sm icon" title="Remove" disabled={draft.questions.length <= 1} onClick={() => removeQ(i)}>✕</button>
+                  </span>
+                </div>
+                <textarea className="textarea" rows={2} value={q.question} autoFocus={q.fresh}
+                  placeholder="e.g. Are you comfortable working from our Hyderabad office three days a week?"
+                  onChange={(e) => setQ(i, e.target.value)} />
+              </div>
             ))}
+            <button type="button" className="btn add-q" onClick={addQ}>+ Add a logistics question</button>
           </div>
         </div>
       )}
