@@ -70,15 +70,16 @@ def _render(template: str, values: dict[str, str], *, escape: bool, raw: frozens
 
 
 def render_email(name: str, *, to: str, subject: str, values: dict[str, str],
-                 images: list[InlineImage] | None = None) -> Email:
-    """templates/email/<name>.{html,txt} -> Email. The HTML is wrapped in _layout.html."""
+                 images: list[InlineImage] | None = None, raw_html: frozenset[str] = frozenset()) -> Email:
+    """templates/email/<name>.{html,txt} -> Email. The HTML is wrapped in _layout.html.
+    `raw_html`: keys whose values are already-safe HTML (built by code, not user data) for the .html part."""
     try:
         body_html = (TEMPLATES_DIR / "email" / f"{name}.html").read_text(encoding="utf-8")
         body_txt = (TEMPLATES_DIR / "email" / f"{name}.txt").read_text(encoding="utf-8")
         layout = (TEMPLATES_DIR / "email" / "_layout.html").read_text(encoding="utf-8")
     except OSError as e:
         raise EmailError(f"email template missing: {e}") from e
-    content = _render(body_html, values, escape=True)
+    content = _render(body_html, values, escape=True, raw=raw_html)
     full_html = _render(layout, {**values, "subject": subject, "content": content}, escape=True,
                         raw=frozenset({"content"}))
     return Email(to=to, subject=subject, text=_render(body_txt, values, escape=False).strip() + "\n",

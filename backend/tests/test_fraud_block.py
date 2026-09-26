@@ -101,10 +101,11 @@ def _clarifications(ctx):
 def test_candidate_is_emailed_the_mismatches_once(faker):
     ctx, cid = faker
     [msg] = _clarifications(ctx)                                        # sent automatically when stopped
-    assert msg["To"] == "aarav@example.com" and "a few details to confirm" in msg["Subject"]
+    assert msg["To"] == "aarav@example.com" and "update your resume and reapply" in msg["Subject"]
     text = msg.get_body(("plain",)).get_content()
     assert "Your resume mentions 20 years of experience" in text        # reworded for the candidate
-    assert "reply to this email" in text.lower()
+    assert "correct these details in your resume and apply again" in text
+    assert "where you found this role" in text                          # no apply_url set: generic wording
     assert "fraud" not in (text + msg.get_body(("html",)).get_content()).lower()  # never accuse
     note = ctx.index.get(cid).notifications["credibility"]
     assert note.kind == "clarification" and note.status == "outbox" and note.to == "aarav@example.com"
@@ -124,3 +125,16 @@ def test_manual_mode_only_emails_on_request(ctx, monkeypatch):
     assert ctx.index.get(cid).fraud_blocked and _clarifications(ctx) == []
     n = request_clarification(ctx, cid)                                  # the recruiter's button
     assert n.status == "outbox" and len(_clarifications(ctx)) == 1
+
+
+def test_reapply_button_links_to_the_job_posting(faker):
+    from screening.credibility import request_clarification
+
+    ctx, cid = faker
+    ctx.config.job.apply_url = "https://careers.kanerika.com/jobs/python-backend?ref=<x>"
+    request_clarification(ctx, cid)                                     # the recruiter's "Resend"
+    msg = _clarifications(ctx)[-1]
+    html = msg.get_body(("html",)).get_content()
+    assert 'href="https://careers.kanerika.com/jobs/python-backend?ref=&lt;x&gt;"' in html   # escaped, clickable
+    assert "Reapply for " in html and "&lt;table" not in html           # the button is real HTML
+    assert "Reapply here: https://careers.kanerika.com/jobs/python-backend" in msg.get_body(("plain",)).get_content()

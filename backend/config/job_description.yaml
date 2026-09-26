@@ -3,6 +3,9 @@ job_id: python-backend-engineer-001
 title: Python Backend Engineer
 company_name: Kanerika Inc   # shown to candidates: call agent introduction, emails, interview page
 location: Hyderabad, India (hybrid)
+# Public job posting (LinkedIn, Naukri, careers page). When set, the "please update your resume" email
+# has a Reapply button that links here. Example: apply_url: https://www.linkedin.com/jobs/view/1234567890
+# apply_url:
 min_experience_years: 3
 max_experience_years: 8
 must_have_skills:

@@ -82,6 +82,11 @@ def draft_jd(config: AppConfig, llm: LLMClient, brief: str, *, company_name: str
         "nice_to_have_skills": [s.strip() for s in out.nice_to_have_skills if s.strip()],
         "description": out.description.strip() + "\n",
     }
+    try:  # keep the public job posting link of the current JD
+        if config.job.apply_url:
+            job["apply_url"] = config.job.apply_url
+    except ConfigError:
+        pass
     try:
         current = config.questions.questions
     except ConfigError:

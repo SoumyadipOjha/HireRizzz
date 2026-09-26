@@ -389,12 +389,25 @@ def request_clarification(ctx, candidate_id: str, *, record: CredibilityRecord |
         n = Notification(kind="clarification", status="skipped", at=utc_now(), error="no valid email address in the resume")
     else:
         try:
+            import html as _html
+
             mailer = mailer or make_mailer(ctx.config)
-            mailer.send(render_email("clarification", to=address,
-                                     subject=f"Your application for {job.title}: a few details to confirm",
-                                     values={"first_name": first_name(name), "job_title": job.title,
-                                             "company_name": job.company_name,
-                                             "items": "\n\n".join(candidate_wording(f) for f in reds)}))
+            url = job.apply_url  # public job posting, if set in job_description.yaml
+            button = (f'<table role="presentation" cellpadding="0" cellspacing="0" style="margin:0 0 20px 0;"><tr>'
+                      f'<td style="border-radius:999px;background:#3b5bdb;"><a href="{_html.escape(url)}" '
+                      f'style="display:inline-block;padding:12px 26px;font-weight:600;color:#ffffff;'
+                      f'text-decoration:none;border-radius:999px;">Reapply for {_html.escape(job.title)}</a>'
+                      f'</td></tr></table>') if url else ""
+            mailer.send(render_email(
+                "clarification", to=address,
+                subject=f"Your application for {job.title}: please update your resume and reapply",
+                values={"first_name": first_name(name), "job_title": job.title, "company_name": job.company_name,
+                        "items": "\n\n".join(candidate_wording(f) for f in reds),
+                        "reapply_where": "through the job posting using the button below" if url
+                        else "through the job posting where you found this role",
+                        "reapply_button": button,
+                        "reapply_link": f"\nReapply here: {url}\n" if url else ""},
+                raw_html=frozenset({"reapply_button"})))
             n = Notification(kind="clarification", status="outbox" if mailer.mode == "outbox" else "sent",
                              to=address, at=utc_now())
         except (EmailError, ConfigError) as e:

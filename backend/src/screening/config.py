@@ -209,6 +209,7 @@ class JobDescription(_Strict):
     must_have_skills: list[str] = Field(min_length=1)
     nice_to_have_skills: list[str] = []
     description: str = Field(min_length=1)
+    apply_url: str | None = Field(default=None, pattern=r"^https?://\S+$")  # public job posting (reapply link)
     approved_by: str | None = None   # set when a manager approves a JD drafted in the dashboard / CLI
     approved_at: str | None = None
 
