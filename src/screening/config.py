@@ -193,11 +193,15 @@ class JobDescription(_Strict):
     must_have_skills: list[str] = Field(min_length=1)
     nice_to_have_skills: list[str] = []
     description: str = Field(min_length=1)
+    approved_by: str | None = None   # set when a manager approves a JD drafted in the dashboard / CLI
+    approved_at: str | None = None
 
 
 class ScreeningQuestion(_Strict):
     id: str = Field(min_length=1, pattern=r"^[a-z0-9_]+$")
     question: str = Field(min_length=1)
+    # role = about the job itself (rewritten by the JD writer, scored in Stage 4); logistics = the rest
+    kind: Literal["role", "logistics"] = "logistics"
 
 
 class ScreeningQuestions(_Strict):
@@ -221,6 +225,11 @@ class AppConfig:
         self._jd: JobDescription | None = None
         self._questions: ScreeningQuestions | None = None
         self._store: Store | None = None
+
+    def reload_files(self) -> None:
+        """Forget the cached JD and questions (after they were edited on disk)."""
+        self._jd = None
+        self._questions = None
 
     @property
     def store(self) -> Store:

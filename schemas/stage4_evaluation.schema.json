@@ -1,0 +1,213 @@
+{
+  "$defs": {
+    "CompetencyResult": {
+      "additionalProperties": false,
+      "properties": {
+        "competency": {
+          "enum": [
+            "role_knowledge",
+            "problem_solving",
+            "communication",
+            "motivation"
+          ],
+          "title": "Competency",
+          "type": "string"
+        },
+        "score": {
+          "title": "Score",
+          "type": "integer"
+        },
+        "weight": {
+          "title": "Weight",
+          "type": "number"
+        },
+        "weighted_score": {
+          "title": "Weighted Score",
+          "type": "number"
+        },
+        "evidence_quotes": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Evidence Quotes",
+          "type": "array"
+        },
+        "unverified_quotes": {
+          "default": [],
+          "items": {
+            "type": "string"
+          },
+          "title": "Unverified Quotes",
+          "type": "array"
+        },
+        "rationale": {
+          "title": "Rationale",
+          "type": "string"
+        }
+      },
+      "required": [
+        "competency",
+        "score",
+        "weight",
+        "weighted_score",
+        "evidence_quotes",
+        "rationale"
+      ],
+      "title": "CompetencyResult",
+      "type": "object"
+    },
+    "LLMInfo": {
+      "additionalProperties": false,
+      "properties": {
+        "provider": {
+          "title": "Provider",
+          "type": "string"
+        },
+        "model": {
+          "title": "Model",
+          "type": "string"
+        },
+        "prompt_file": {
+          "title": "Prompt File",
+          "type": "string"
+        }
+      },
+      "required": [
+        "provider",
+        "model",
+        "prompt_file"
+      ],
+      "title": "LLMInfo",
+      "type": "object"
+    }
+  },
+  "additionalProperties": false,
+  "properties": {
+    "schema_version": {
+      "default": "1.0",
+      "title": "Schema Version",
+      "type": "string"
+    },
+    "candidate_id": {
+      "title": "Candidate Id",
+      "type": "string"
+    },
+    "stage": {
+      "const": "stage4_evaluation",
+      "default": "stage4_evaluation",
+      "title": "Stage",
+      "type": "string"
+    },
+    "run_id": {
+      "title": "Run Id",
+      "type": "string"
+    },
+    "created_at": {
+      "title": "Created At",
+      "type": "string"
+    },
+    "llm": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/LLMInfo"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "job_id": {
+      "title": "Job Id",
+      "type": "string"
+    },
+    "competencies": {
+      "items": {
+        "$ref": "#/$defs/CompetencyResult"
+      },
+      "title": "Competencies",
+      "type": "array"
+    },
+    "interview_score": {
+      "title": "Interview Score",
+      "type": "number"
+    },
+    "resume_score": {
+      "title": "Resume Score",
+      "type": "number"
+    },
+    "resume_weight": {
+      "title": "Resume Weight",
+      "type": "number"
+    },
+    "interview_weight": {
+      "title": "Interview Weight",
+      "type": "number"
+    },
+    "final_score": {
+      "title": "Final Score",
+      "type": "number"
+    },
+    "threshold": {
+      "title": "Threshold",
+      "type": "number"
+    },
+    "suggested_decision": {
+      "enum": [
+        "shortlisted",
+        "rejected"
+      ],
+      "title": "Suggested Decision",
+      "type": "string"
+    },
+    "decision_reasons": {
+      "items": {
+        "type": "string"
+      },
+      "title": "Decision Reasons",
+      "type": "array"
+    },
+    "needs_review": {
+      "title": "Needs Review",
+      "type": "boolean"
+    },
+    "review_reasons": {
+      "items": {
+        "type": "string"
+      },
+      "title": "Review Reasons",
+      "type": "array"
+    },
+    "concerns": {
+      "items": {
+        "type": "string"
+      },
+      "title": "Concerns",
+      "type": "array"
+    },
+    "summary": {
+      "title": "Summary",
+      "type": "string"
+    }
+  },
+  "required": [
+    "candidate_id",
+    "run_id",
+    "llm",
+    "job_id",
+    "competencies",
+    "interview_score",
+    "resume_score",
+    "resume_weight",
+    "interview_weight",
+    "final_score",
+    "threshold",
+    "suggested_decision",
+    "decision_reasons",
+    "needs_review",
+    "review_reasons",
+    "concerns",
+    "summary"
+  ],
+  "title": "Stage4Record",
+  "type": "object"
+}

@@ -256,6 +256,15 @@ tbody tr.static:hover td { background: inherit; }
 .toast.err { background: var(--bad); color: #fff; }
 .listhead { display: flex; align-items: baseline; gap: 8px; padding: 12px 14px 4px; }
 .listhead h3 { margin: 0; font-size: 13px; }
+.form { display: grid; gap: 12px; padding: 14px; }
+.form label { display: grid; gap: 4px; font-size: 12px; color: var(--text-2); }
+.form input, .form textarea { border: 1px solid var(--border); background: var(--surface-2); border-radius: 8px; padding: 7px 10px;
+  font: inherit; font-size: 13px; color: var(--text); width: 100%; }
+.form textarea { resize: vertical; line-height: 1.5; }
+.form input:focus, .form textarea:focus { outline: 2px solid var(--accent); outline-offset: -1px; }
+.form .row { display: grid; grid-template-columns: repeat(auto-fit, minmax(160px, 1fr)); gap: 12px; }
+.notes { background: var(--warn-soft); color: var(--warn); border-radius: 8px; padding: 8px 12px; font-size: 12px; }
+.notes ul { margin: 4px 0 0; padding-left: 18px; }
 </style>
 </head>
 <body>
@@ -330,7 +339,10 @@ tbody tr.static:hover td { background: inherit; }
     </div>
   </section>
 
-  <section id="tab-config" class="hidden"><div class="grid2" id="configview"></div></section>
+  <section id="tab-config" class="hidden">
+    <div class="card" id="jdwriter" style="margin-bottom:16px"></div>
+    <div class="grid2" id="configview"></div>
+  </section>
 </div>
 
 <script>
@@ -863,6 +875,74 @@ async function loadResults() {
     lists.awaiting_approval.length ? block("Waiting for the hiring manager", lists.awaiting_approval, "", "var(--warn)") : null));
 }
 
+// ---------- JD writer (gate 1) ----------
+// Rendered on demand only (not on every refresh), so edits in progress are never wiped.
+function approverName() { return $("approver").value.trim(); }
+
+function renderJDWriter(draft) {
+  const box = $("jdwriter");
+  const company = state.ov?.job?.company_name || "";
+  const brief = h("textarea", { id: "jd-brief", rows: "4", maxlength: "6000",
+    placeholder: "e.g. We need a backend engineer in Hyderabad (hybrid), 3-6 years, strong Python and SQL, builds REST APIs for our payments product, AWS a plus." });
+  const comp = h("input", { id: "jd-company", type: "text", maxlength: "80", value: company });
+  const go = h("button", { class: "btn primary" }, draft ? "Draft again with AI" : "Draft with AI");
+  go.onclick = async () => {
+    go.disabled = true; go.textContent = "Drafting…";
+    try { const r = await postJSON("/api/jd/draft", { brief: brief.value, company_name: comp.value }); renderJDWriter(r.draft); toast("Draft ready. Review it below, then approve."); }
+    catch (e) { toast(e.message, true); go.disabled = false; go.textContent = draft ? "Draft again with AI" : "Draft with AI"; }
+  };
+  const parts = [
+    h("div", { class: "cardhead" }, h("h2", {}, "Write a new job description"), h("span", { class: "muted" }, "Hiring manager · the AI drafts, you edit and approve")),
+    h("div", { class: "form" },
+      h("label", { for: "jd-brief" }, "Describe the role in your own words", brief),
+      h("div", { class: "row" }, h("label", { for: "jd-company" }, "Company", comp)),
+      h("div", {}, go))];
+  if (draft) parts.push(jdEditor(draft));
+  box.replaceChildren(...parts);
+  if (draft?.brief) brief.value = draft.brief;
+}
+
+function jdEditor(d) {
+  const j = d.job;
+  const f = (id, label, value, attrs = {}) => h("label", { for: id }, label, h("input", { id, type: "text", value: value ?? "", ...attrs }));
+  const qs = d.questions.map((q, i) => h("label", { for: `jd-q${i}` }, `${q.kind === "role" ? "Role question (scored)" : "Logistics question"} · ${q.id}`,
+    h("textarea", { id: `jd-q${i}`, rows: "2", "data-qid": q.id, "data-kind": q.kind }, q.question)));
+  const desc = h("textarea", { id: "jd-desc", rows: "9" }, j.description);
+  const approve = h("button", { class: "btn primary" }, "Approve & publish");
+  approve.onclick = async () => {
+    const by = approverName();
+    if (!by) { switchTab("approvals"); $("approver").focus(); return toast("Enter your name in “Approving as” (Approvals tab) first.", true); }
+    const list = (id) => $(id).value.split(",").map((s) => s.trim()).filter(Boolean);
+    const num = (id) => ($(id).value.trim() === "" ? null : Number($(id).value));
+    const job = { job_id: $("jd-id").value.trim(), title: $("jd-title").value.trim(), company_name: $("jd-company").value.trim() || j.company_name,
+      location: $("jd-loc").value.trim() || null, min_experience_years: num("jd-min"), max_experience_years: num("jd-max"),
+      must_have_skills: list("jd-must"), nice_to_have_skills: list("jd-nice"), description: $("jd-desc").value };
+    const questions = [...document.querySelectorAll("#jdwriter textarea[data-qid]")].map((t) => ({ id: t.dataset.qid, kind: t.dataset.kind, question: t.value.trim() }));
+    const scored = candidates().filter((c) => c.stages.stage2_shortlisting.status === "success").length;
+    if (!confirm(`Publish “${job.title}” as ${by}?\n\nIt becomes the job candidates are scored against, and the screening agent will ask these questions.` +
+                 (scored ? `\n\n${scored} candidate(s) were already scored against the current JD; they are not re-scored automatically.` : ""))) return;
+    approve.disabled = true;
+    try {
+      const r = await postJSON("/api/jd/approve", { by, job, questions });
+      toast(`Published ${r.title}. Previous version saved in ${r.backup}.`);
+      state.sig = null; await refresh(); renderJDWriter(null);
+    } catch (e) { toast(e.message, true); approve.disabled = false; }
+  };
+  return h("div", { style: "border-top:1px solid var(--border)" },
+    h("div", { class: "cardhead" }, h("h2", {}, "Draft"), h("span", { class: "flag ai" }, "AI draft · not live yet"),
+      h("span", { class: "muted" }, `${d.llm || ""} · ${fmtTime(d.created_at)}`)),
+    h("div", { class: "form" },
+      d.language_notes?.length ? h("div", { class: "notes" }, h("b", {}, "Wording the AI changed from your brief"), h("ul", {}, d.language_notes.map((n) => h("li", {}, n)))) : null,
+      h("div", { class: "row" }, f("jd-title", "Job title", j.title, { maxlength: "120" }), f("jd-id", "Job ID", j.job_id, { maxlength: "80" }), f("jd-loc", "Location", j.location)),
+      h("div", { class: "row" }, f("jd-min", "Min experience (years)", j.min_experience_years, { inputmode: "decimal" }), f("jd-max", "Max experience (years)", j.max_experience_years, { inputmode: "decimal" })),
+      f("jd-must", "Must-have skills (comma-separated)", j.must_have_skills.join(", ")),
+      f("jd-nice", "Nice-to-have skills (comma-separated)", j.nice_to_have_skills.join(", ")),
+      h("label", { for: "jd-desc" }, "Job description", desc),
+      h("div", { class: "muted small" }, "Screening questions the AI interviewer will ask (role questions are scored in Stage 4)"),
+      qs,
+      h("div", {}, approve)));
+}
+
 // ---------- failures / log / config ----------
 async function renderFailures() {
   $("failcount").textContent = state.ov.failure_count;
@@ -926,6 +1006,7 @@ function switchTab(tab) {
   ["candidates", "approvals", "results", "failures", "log", "config"].forEach((t) => $("tab-" + t).classList.toggle("hidden", t !== tab));
   if (tab === "log") loadLog();
   if (tab === "results") loadResults();
+  if (tab === "config" && !state.jdLoaded) { state.jdLoaded = true; getJSON("/api/jd/draft").then((r) => renderJDWriter(r.draft)).catch(() => renderJDWriter(null)); }
 }
 document.querySelectorAll(".tab").forEach((b) => (b.onclick = () => switchTab(b.dataset.tab)));
 $("search").addEventListener("input", (e) => { state.q = e.target.value; renderRows(); });

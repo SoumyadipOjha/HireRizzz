@@ -121,6 +121,19 @@ uv run screening --email outbox call             # dry run: emails go to data/ou
   `screening serve --host 0.0.0.0`. The dashboard still only answers on the
   machine itself.
 
+## Job description writer (gate 1)
+
+The hiring manager describes the role in a few sentences; the AI drafts the job post, must-have /
+nice-to-have skills and two role-specific interview questions, and flags wording that could put off
+qualified applicants. Nothing is live until a person approves it (dashboard: *Job & thresholds* tab).
+
+```bash
+uv run screening write-jd --brief "Backend engineer in Hyderabad (hybrid), 3-6 years, Python, SQL, REST APIs, AWS a plus"
+uv run screening approve-jd --by "Dev (Hiring Manager)"   # publishes config/job_description.yaml + questions
+```
+
+Previous versions are kept in `config/history/`. Logistics questions stay; role questions (`kind: role`) are replaced.
+
 ## Approvals and results (the AI suggests, people decide)
 
 ```

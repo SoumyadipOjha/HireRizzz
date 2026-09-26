@@ -329,6 +329,31 @@ class Stage4Record(Envelope):
     summary: str
 
 
+# ---------------------------------------------------------------------------
+# JD writer (jd_writer.py): hiring manager's brief -> draft JD + role questions
+# ---------------------------------------------------------------------------
+
+class RoleQuestionLLM(_Model):
+    question: str = Field(description="One spoken interview question about real work in this role; "
+                                      "answerable in about a minute, no yes/no questions")
+
+
+class JDDraftLLM(_Model):
+    title: str = Field(description="Job title, plain and searchable (no 'rockstar'/'ninja')")
+    location: str | None = Field(description="Location and work mode (e.g. 'Hyderabad, India (hybrid)'); null if not given")
+    min_experience_years: float | None = Field(description="Minimum years of relevant experience; null if not given")
+    max_experience_years: float | None = Field(description="Maximum years, only if the brief implies a range; else null")
+    must_have_skills: list[str] = Field(description="3-7 skills the role truly cannot do without")
+    nice_to_have_skills: list[str] = Field(description="0-8 skills that help but are not required")
+    description: str = Field(description="The job post: 1 short paragraph about the role, then a 'Responsibilities:' "
+                                         "list of 4-6 lines starting with '- '. Plain text, no markdown headings")
+    role_questions: list[RoleQuestionLLM] = Field(description="Exactly 2: one about a recent project using the "
+                                                              "must-have skills, one about solving a real problem")
+    language_notes: list[str] = Field(description="Wording in the brief that could discourage qualified applicants "
+                                                  "(gendered, age-coded, unnecessary requirements) and how the draft "
+                                                  "handled it; empty if none")
+
+
 EXPORTED_SCHEMAS: dict[str, type[BaseModel]] = {
     "candidates_index": CandidatesIndexDoc,
     "stage1_extracted": Stage1Record,

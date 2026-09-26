@@ -181,6 +181,51 @@ def cmd_results(args) -> int:
     return 0
 
 
+def cmd_write_jd(args) -> int:
+    from .jd_writer import JDError, draft_jd
+
+    ctx = _ctx(args)
+    brief = Path(args.brief_file).read_text(encoding="utf-8") if args.brief_file else (args.brief or "")
+    try:
+        d = draft_jd(ctx.config, _llm(ctx), brief, company_name=args.company)
+    except JDError as e:
+        print(f"ERROR: {e}", file=sys.stderr)
+        return 2
+    job = d["job"]
+    print(f"\nDRAFT (not live yet): {job['title']} · {job['company_name']} · {job.get('location') or '-'}")
+    print(f"  must-have:    {', '.join(job['must_have_skills'])}")
+    print(f"  nice-to-have: {', '.join(job['nice_to_have_skills']) or '-'}")
+    for q in d["questions"]:
+        if q["kind"] == "role":
+            print(f"  role question: {q['question']}")
+    for n in d["language_notes"]:
+        print(f"  wording note:  {n}")
+    print(f"\nEdit {ctx.config.data.rel(ctx.config.data.root / 'jd_draft.json')} if needed, then publish it:")
+    print('  uv run screening approve-jd --by "Your Name (Hiring Manager)"')
+    return 0
+
+
+def cmd_approve_jd(args) -> int:
+    from .jd_writer import JDError, approve_jd, load_draft
+
+    ctx = _ctx(args)
+    d = load_draft(ctx.config)
+    if not d:
+        print("No draft to approve. Create one with: uv run screening write-jd --brief \"...\"", file=sys.stderr)
+        return 2
+    scored = sum(e.stages["stage2_shortlisting"].status == "success" for e in ctx.index.all())
+    try:
+        r = approve_jd(ctx.config, d["job"], d["questions"], by=args.by, scored_candidates=scored)
+    except JDError as e:
+        print(f"ERROR: {e}", file=sys.stderr)
+        return 2
+    print(f"Published {r['title']} ({r['job_id']}) with {r['questions']} screening questions. Previous files: {r['backup']}")
+    if scored:
+        print(f"Note: {scored} candidate(s) were scored against the previous JD. Re-score them with "
+              "`uv run screening shortlist --force`, or use a new --data-dir for this job.")
+    return 0
+
+
 def cmd_remind(args) -> int:
     from .agent.notify import send_reminders
     from .mailer import make_mailer
@@ -379,6 +424,16 @@ def build_parser() -> argparse.ArgumentParser:
                                      help="Email active links again (e.g. after fixing SMTP settings)")
 
     stage_cmd("evaluate", "Stage 4: score finished interviews and suggest final decisions (LLM)", cmd_evaluate)
+
+    s = sub.add_parser("write-jd", help="Gate 1: AI drafts a JD + role questions from a short brief (not live yet)")
+    g = s.add_mutually_exclusive_group(required=True)
+    g.add_argument("--brief", help="What the role is: responsibilities, key skills, experience, location")
+    g.add_argument("--brief-file", type=Path, help="Text file with the brief")
+    s.add_argument("--company", default=None, help="Company name (default: the current JD's)")
+    s.set_defaults(func=cmd_write_jd)
+    s = sub.add_parser("approve-jd", help="Gate 1: hiring manager publishes the drafted JD + questions")
+    s.add_argument("--by", required=True, help="Who is approving")
+    s.set_defaults(func=cmd_approve_jd)
 
     s = sub.add_parser("review", help="Show candidates waiting at an approval gate")
     s.set_defaults(func=cmd_review)

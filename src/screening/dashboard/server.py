@@ -24,6 +24,7 @@ from urllib.parse import parse_qs, urlparse
 from ..agent.invites import TOKEN_RE, InviteError, InviteStore
 from ..agent.verification import VerificationError
 from ..config import AppConfig, ConfigError
+from ..llm.base import LLMError
 from ..schemas import STAGES
 
 STATIC = Path(__file__).parent / "static"
@@ -36,12 +37,13 @@ _CSP = ("default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self'
 
 
 class DashboardAPI:
-    def __init__(self, config: AppConfig, ctx=None, mailer_factory=None):
+    def __init__(self, config: AppConfig, ctx=None, mailer_factory=None, llm_factory=None):
         self.config = config
         self.store = config.store
         self.invites = InviteStore(self.store)
         self._ctx = ctx
         self._mailer_factory = mailer_factory
+        self._llm_factory = llm_factory
 
     @property
     def ctx(self):
@@ -72,6 +74,33 @@ class DashboardAPI:
             if gate == "shortlist":
                 return approve_shortlist(self.ctx, decisions, by=by, note=note, mailer=self._mailer())
             return approve_final(self.ctx, decisions, by=by, note=note)
+
+    # -------------------------------------------------------------- JD writer (gate 1, loopback only)
+
+    def jd_draft(self) -> dict:
+        from ..jd_writer import load_draft
+
+        return {"draft": load_draft(self.config)}
+
+    def write_jd(self, body: dict) -> dict:
+        from ..jd_writer import draft_jd
+        from ..llm import make_client
+
+        brief = body.get("brief") if isinstance(body.get("brief"), str) else ""
+        company = body.get("company_name") if isinstance(body.get("company_name"), str) else None
+        llm = self._llm_factory() if self._llm_factory else make_client(self.config)
+        return {"draft": draft_jd(self.config, llm, brief, company_name=company)}
+
+    def approve_jd(self, body: dict) -> dict:
+        from ..jd_writer import JDError, approve_jd
+
+        job, questions = body.get("job"), body.get("questions")
+        if not isinstance(job, dict) or not isinstance(questions, list):
+            raise JDError("job (object) and questions (list) are required")
+        with self.ctx.lock:
+            scored = sum(e.stages["stage2_shortlisting"].status == "success" for e in self.ctx.index.reload().all())
+            return approve_jd(self.config, job, questions, by=body.get("by") if isinstance(body.get("by"), str) else "",
+                              scored_candidates=scored)
 
     def send_results(self) -> dict:
         from ..approvals import send_final_results
@@ -240,6 +269,8 @@ class Handler(BaseHTTPRequestHandler):
                 return self._json(self.api.failures())
             if path == "/api/results":
                 return self._json(self.api.results())
+            if path == "/api/jd/draft":
+                return self._json(self.api.jd_draft())
             if path == "/api/results.csv":
                 body = self.api.results_csv().encode("utf-8-sig")  # BOM: Excel opens UTF-8 names correctly
                 return self._send(200, body, "text/csv; charset=utf-8",
@@ -256,7 +287,8 @@ class Handler(BaseHTTPRequestHandler):
         try:
             if m := _INTERVIEW_API.match(path):
                 return self._interview(m.group(1), m.group(2), method="POST")
-            if path in ("/api/approve/shortlist", "/api/approve/final", "/api/send-results"):
+            if path in ("/api/approve/shortlist", "/api/approve/final", "/api/send-results", "/api/jd/draft",
+                        "/api/jd/approve"):
                 return self._dashboard_action(path)
             return self._json({"error": "not found"}, HTTPStatus.NOT_FOUND)
         except Exception as e:
@@ -285,9 +317,17 @@ class Handler(BaseHTTPRequestHandler):
             body = self._body()
             if path == "/api/send-results":
                 return self._json(self.api.send_results())
+            if path == "/api/jd/draft":
+                return self._json(self.api.write_jd(body))
+            if path == "/api/jd/approve":
+                return self._json(self.api.approve_jd(body))
             return self._json(self.api.approve(path.rsplit("/", 1)[-1], body))
         except (ApprovalError, ValueError) as e:
             return self._json({"error": str(e)}, HTTPStatus.BAD_REQUEST)
+        except ConfigError as e:  # e.g. no Gemini key for the JD writer
+            return self._json({"error": str(e)}, HTTPStatus.SERVICE_UNAVAILABLE)
+        except LLMError as e:
+            return self._json({"error": f"The AI couldn't draft this right now: {e}"}, HTTPStatus.BAD_GATEWAY)
         except KeyError as e:
             return self._json({"error": str(e).strip("'\"")}, HTTPStatus.NOT_FOUND)
 
@@ -348,7 +388,7 @@ def serve(config: AppConfig, port: int = 8765, open_browser: bool = True, host: 
 
     ctx = RunContext.create(config)
     interviews = InterviewService(ctx, llm_factory=lambda: make_client(config))
-    httpd = ThreadingHTTPServer((host, port), partial(Handler, api=DashboardAPI(config, ctx=ctx), interviews=interviews))
+    httpd = ThreadingHTTPServer((host, port), partial(Handler, api=DashboardAPI(config, ctx=ctx, llm_factory=lambda: make_client(config)), interviews=interviews))
     url = f"http://127.0.0.1:{port}/"
     print(f"Dashboard:  {url}   (storage: {config.store.describe()})", flush=True)
     print(f"Interviews: {config.settings.stage3.public_base_url}/interview/<token>   — Ctrl+C to stop", flush=True)

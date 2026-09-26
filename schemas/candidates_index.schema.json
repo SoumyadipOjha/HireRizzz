@@ -47,7 +47,8 @@
           "enum": [
             "stage1_extraction",
             "stage2_shortlisting",
-            "stage3_calling"
+            "stage3_calling",
+            "stage4_evaluation"
           ],
           "title": "Current Stage",
           "type": "string"
@@ -59,7 +60,10 @@
             "rejected",
             "failed",
             "awaiting",
-            "completed"
+            "completed",
+            "evaluated",
+            "selected",
+            "not_selected"
           ],
           "title": "Overall Status",
           "type": "string"
@@ -72,10 +76,37 @@
             "enum": [
               "stage1_extraction",
               "stage2_shortlisting",
-              "stage3_calling"
+              "stage3_calling",
+              "stage4_evaluation"
             ]
           },
           "title": "Stages",
+          "type": "object"
+        },
+        "reviews": {
+          "additionalProperties": {
+            "$ref": "#/$defs/Review"
+          },
+          "propertyNames": {
+            "enum": [
+              "shortlist",
+              "final"
+            ]
+          },
+          "title": "Reviews",
+          "type": "object"
+        },
+        "notifications": {
+          "additionalProperties": {
+            "$ref": "#/$defs/Notification"
+          },
+          "propertyNames": {
+            "enum": [
+              "shortlist",
+              "final"
+            ]
+          },
+          "title": "Notifications",
           "type": "object"
         }
       },
@@ -87,6 +118,118 @@
         "updated_at"
       ],
       "title": "CandidateEntry",
+      "type": "object"
+    },
+    "Notification": {
+      "additionalProperties": false,
+      "description": "A result email to the candidate (approvals.py).",
+      "properties": {
+        "kind": {
+          "title": "Kind",
+          "type": "string"
+        },
+        "status": {
+          "enum": [
+            "sent",
+            "outbox",
+            "failed",
+            "skipped"
+          ],
+          "title": "Status",
+          "type": "string"
+        },
+        "to": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "To"
+        },
+        "at": {
+          "title": "At",
+          "type": "string"
+        },
+        "error": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Error"
+        }
+      },
+      "required": [
+        "kind",
+        "status",
+        "at"
+      ],
+      "title": "Notification",
+      "type": "object"
+    },
+    "Review": {
+      "additionalProperties": false,
+      "description": "A person's decision at an approval gate (approvals.py).",
+      "properties": {
+        "decision": {
+          "enum": [
+            "shortlisted",
+            "rejected"
+          ],
+          "title": "Decision",
+          "type": "string"
+        },
+        "ai_decision": {
+          "anyOf": [
+            {
+              "enum": [
+                "shortlisted",
+                "rejected"
+              ],
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Ai Decision"
+        },
+        "by": {
+          "title": "By",
+          "type": "string"
+        },
+        "at": {
+          "title": "At",
+          "type": "string"
+        },
+        "note": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Note"
+        }
+      },
+      "required": [
+        "decision",
+        "by",
+        "at"
+      ],
+      "title": "Review",
       "type": "object"
     },
     "StageState": {

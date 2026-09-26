@@ -20,6 +20,7 @@ from screening.paths import PROJECT_ROOT
 from screening.schemas import (
     AgentTurnLLM,
     InterviewEvaluationLLM,
+    JDDraftLLM,
     ResumeExtractionLLM,
     ShortlistAssessmentLLM,
     TranscriptParseLLM,
@@ -86,7 +87,16 @@ TRANSCRIPT_PARSE = {
 }
 
 
-INVENTED_QUOTE = "I single-handedly migrated forty microservices to Rust"
+JD_DRAFT = {
+    "title": "Data Engineer", "location": "Pune, India (hybrid)", "min_experience_years": 2,
+    "max_experience_years": 5, "must_have_skills": ["Python", "SQL", "Airflow"], "nice_to_have_skills": ["Spark"],
+    "description": "Build data pipelines.\nResponsibilities:\n- Build ETL jobs\n- Model data",
+    "role_questions": [{"question": "Tell me about a pipeline you built with Airflow."},
+                       {"question": "Describe a data quality problem you fixed."}],
+    "language_notes": ["'young, energetic team' removed (age-coded)"],
+}
+
+INVENTED_QUOTE ="I single-handedly migrated forty microservices to Rust"
 
 
 def interview_evaluation(prompt: str, scores=(80, 70, 75, 90)) -> dict:
@@ -131,6 +141,8 @@ class FakeLLM(LLMClient):
             return schema.model_validate(ASSESSMENTS[key])
         if schema is TranscriptParseLLM:
             return schema.model_validate(TRANSCRIPT_PARSE)
+        if schema is JDDraftLLM:
+            return schema.model_validate(JD_DRAFT)
         if schema is InterviewEvaluationLLM:
             return schema.model_validate(interview_evaluation(prompt))
         if schema is AgentTurnLLM:
