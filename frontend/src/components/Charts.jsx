@@ -38,21 +38,6 @@ export function CountUp({ value, decimals = 0, duration = 1100, suffix = "" }) {
   return <>{v.toFixed(decimals)}{suffix}</>;
 }
 
-/** Floating tooltip that follows the pointer inside a chart. */
-function useTip() {
-  const [tip, setTip] = useState(null);
-  const ref = useRef(null);
-  const show = (e, content) => {
-    const r = ref.current?.getBoundingClientRect();
-    if (!r) return;
-    setTip({ x: e.clientX - r.left, y: e.clientY - r.top, content });
-  };
-  const el = tip && (
-    <div className="chart-tip" style={{ left: tip.x, top: tip.y }}>{tip.content}</div>
-  );
-  return { ref, show, hide: () => setTip(null), el };
-}
-
 // ------------------------------------------------------------------ donut
 
 export function Donut({ segments, size = 190, thickness = 24, centerLabel = "total", onSelect }) {
@@ -105,55 +90,6 @@ export function Donut({ segments, size = 190, thickness = 24, centerLabel = "tot
           </button>
         ))}
       </div>
-    </div>
-  );
-}
-
-// ------------------------------------------------------------------ vertical bars (histogram / activity)
-
-export function ColumnChart({ bars, height = 170, marker, series = [{ key: "value", color: "url(#colgrad)" }], labelEvery = 1 }) {
-  const mounted = useMounted(180);
-  const tip = useTip();
-  const max = Math.max(1, ...bars.flatMap((b) => series.map((s) => b[s.key] || 0)));
-  const W = 100 / bars.length;
-  return (
-    <div className="colchart" ref={tip.ref} onMouseLeave={tip.hide}>
-      <svg viewBox={`0 0 100 ${height}`} preserveAspectRatio="none" style={{ height }}>
-        <defs>
-          <linearGradient id="colgrad" x1="0" y1="0" x2="0" y2="1">
-            <stop offset="0" stopColor="#a855f7" />
-            <stop offset="1" stopColor="#6d5efc" />
-          </linearGradient>
-          <linearGradient id="colgrad2" x1="0" y1="0" x2="0" y2="1">
-            <stop offset="0" stopColor="#f472b6" />
-            <stop offset="1" stopColor="#ec4899" />
-          </linearGradient>
-        </defs>
-        {[0.25, 0.5, 0.75].map((f) => (
-          <line key={f} x1="0" x2="100" y1={height * f} y2={height * f} className="gridline" vectorEffect="non-scaling-stroke" />
-        ))}
-        {bars.map((b, i) => {
-          const inner = (W * 0.72) / series.length;
-          return series.map((s, j) => {
-            const v = b[s.key] || 0;
-            const h = mounted ? (v / max) * (height - 8) : 0;
-            return (
-              <rect key={`${i}-${s.key}`} className="col-bar" x={i * W + W * 0.14 + j * inner} width={inner * 0.92}
-                y={height - h} height={h} rx="1.2" fill={s.color} style={{ transitionDelay: `${i * 35}ms` }}
-                onMouseMove={(e) => tip.show(e, b.tip ?? `${b.label}: ${v}`)} />
-            );
-          });
-        })}
-        {marker != null && (
-          <line x1={marker} x2={marker} y1="0" y2={height} className="marker" vectorEffect="non-scaling-stroke" />
-        )}
-      </svg>
-      <div className="col-labels">
-        {bars.map((b, i) => (
-          <span key={i} style={{ width: `${W}%` }}>{i % labelEvery === 0 ? b.label : ""}</span>
-        ))}
-      </div>
-      {tip.el}
     </div>
   );
 }

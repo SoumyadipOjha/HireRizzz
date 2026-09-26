@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import { label, navigate } from "../lib.js";
-import { ColumnChart, CountUp, Donut, Gauge } from "./Charts.jsx";
+import { CountUp, Donut, Gauge } from "./Charts.jsx";
 
 export const COL_COLOR = {
   applied: "#94a3b8", resume_review: "#6d5efc", interview: "#0ea5e9", final_review: "#a855f7",
@@ -47,11 +47,6 @@ export default function Insights({ data, onPost }) {
     { key: "fraud", label: "Fraud stopped", value: data.columns.fraud, color: COL_COLOR.fraud },
   ];
 
-  const days = data.daily.map((d) => {
-    const dt = new Date(`${d.date}T00:00:00`);
-    const l = dt.toLocaleDateString(undefined, { day: "numeric", month: "short" });
-    return { ...d, label: l, tip: `${l}: ${d.applied} applied · ${d.decided} decisions` };
-  });
   const agree = data.ai.decisions ? (data.ai.agreed / data.ai.decisions) * 100 : null;
 
   return (
@@ -99,13 +94,6 @@ export default function Insights({ data, onPost }) {
 
         <Facts data={data} />
 
-        <div className="card chart-card full fade-up" style={{ "--i": 5 }}>
-          <div className="chart-head">
-            <h3>Last 14 days</h3>
-            <span className="legend-inline"><i style={{ background: "#7c6cf8" }} /> applied <i style={{ background: "#ec4899" }} /> decisions</span>
-          </div>
-          <ColumnChart bars={days} height={130} series={[{ key: "applied", color: "url(#colgrad)" }, { key: "decided", color: "url(#colgrad2)" }]} />
-        </div>
       </div>
     </section>
   );
