@@ -23,7 +23,7 @@ export default function App() {
           HireRizz
         </a>
         <span className="spacer" />
-        <button className="btn ghost sm" onClick={() => setSystem(true)}>Activity &amp; log</button>
+        <button className="btn ghost sm" onClick={() => setSystem(true)}>Failures</button>
         <ApproverChip />
       </header>
       {m ? <BoardPage jobId={decodeURIComponent(m[1])} /> : <JobsPage />}

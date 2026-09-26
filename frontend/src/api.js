@@ -42,7 +42,6 @@ export const api = {
   results: (jobId) => request(`/api/results${q(jobId)}`),
   resultsCsvUrl: (jobId) => `${BASE}/api/results.csv${q(jobId)}`,
   failures: () => request("/api/failures"),
-  log: (lines = 300) => request(`/api/log?lines=${lines}`),
   approve: (gate, decisions, by, note) =>
     request(`/api/approve/${gate}`, { method: "POST", body: { decisions, by, note: note || undefined } }),
   sendResults: (jobId) => request("/api/send-results", { method: "POST", body: { job_id: jobId } }),
