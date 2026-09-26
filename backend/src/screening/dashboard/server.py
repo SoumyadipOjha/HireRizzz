@@ -42,6 +42,14 @@ def cors_origins() -> set[str]:
     return {o.strip().rstrip("/") for o in os.environ.get("CORS_ORIGINS", "").split(",") if o.strip()}
 
 
+def origin_allowed(origin: str) -> bool:
+    """Exact match, or a pattern with * (e.g. https://hire-rizzz-*.vercel.app for Vercel preview URLs)."""
+    import fnmatch
+
+    origin = origin.rstrip("/")
+    return any(origin == o or ("*" in o and fnmatch.fnmatchcase(origin, o)) for o in cors_origins())
+
+
 def dashboard_public() -> bool:
     """DASHBOARD_PUBLIC=true: the manager dashboard answers anyone, not just this computer. There is
     no login, so anyone with the URL can see candidates and approve/reject: the owner's choice."""
@@ -312,7 +320,7 @@ class Handler(BaseHTTPRequestHandler):
 
     def _allowed_origin(self) -> str | None:
         origin = (self.headers.get("Origin") or "").rstrip("/")
-        return origin if origin and origin in cors_origins() else None
+        return origin if origin and origin_allowed(origin) else None
 
     def _is_loopback(self) -> bool:
         try:
@@ -439,7 +447,7 @@ class Handler(BaseHTTPRequestHandler):
         if origin is None:
             return True  # non-browser clients (curl, tests)
         host = self.headers.get("Host", "")
-        return origin in (f"http://{host}", f"https://{host}") or origin.rstrip("/") in cors_origins()
+        return origin in (f"http://{host}", f"https://{host}") or origin_allowed(origin)
 
     def _dashboard_action(self, path: str) -> None:
         from ..approvals import ApprovalError

@@ -107,7 +107,7 @@ def test_upload_resumes_screens_them(ctx):
 
 def test_cors_only_for_the_configured_frontend(server, monkeypatch):
     base, _ = server
-    monkeypatch.setenv("CORS_ORIGINS", "https://hirerizz.vercel.app")
+    monkeypatch.setenv("CORS_ORIGINS", "https://hirerizz.vercel.app, https://hirerizz-*.vercel.app")
 
     def call(method, origin):
         req = urllib.request.Request(base + "/api/overview", method=method, headers={"Origin": origin})
@@ -119,6 +119,8 @@ def test_cors_only_for_the_configured_frontend(server, monkeypatch):
 
     assert call("OPTIONS", "https://hirerizz.vercel.app") == (204, "https://hirerizz.vercel.app")
     assert call("GET", "https://hirerizz.vercel.app") == (200, "https://hirerizz.vercel.app")
+    assert call("OPTIONS", "https://hirerizz-git-main-soumyadip.vercel.app")[0] == 204  # Vercel preview URL
+    assert call("OPTIONS", "https://evil.vercel.app")[0] == 403
     assert call("OPTIONS", "https://evil.example")[0] == 403
     assert call("GET", "https://evil.example") == (200, None)  # the browser won't let that site read it
     with urllib.request.urlopen(base + "/api/health") as r:
