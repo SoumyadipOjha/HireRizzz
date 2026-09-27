@@ -52,6 +52,11 @@ stage3:
   max_turn_chars: 2000            # longer candidate messages are truncated
   speech_lang: en-IN              # speech recognition + voice language (e.g. en-US, en-GB)
   agent_temperature: 0.4          # a little variety in the spoken replies (parsing stays at llm.temperature)
+  support_phone: "+1 (463) 215-0098"   # in every screening email: "website down? call us"
+  email_on_interrupted_call: true   # a call that stops partway emails the candidate the link to finish it
+  interrupted_grace_seconds: 45     # ...after this long (a quick page reload does not count)
+  max_interrupted_emails: 3
+  idle_minutes: 10                  # no activity this long = the call dropped
   verify_email: false             # true = candidate must enter a code emailed to their resume address before the call
   otp_length: 6
   otp_expiry_minutes: 10

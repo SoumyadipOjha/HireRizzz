@@ -58,6 +58,7 @@ def build_invite_email(config: AppConfig, *, kind: str, to: str, name: str | Non
     return render_email(kind, to=to, subject=subject, values={
         "first_name": first_name(name), "job_title": job.title, "company_name": job.company_name,
         "link": url, "expires_on": expires_on, "minutes": str(call_minutes(config)), "qr_cid": QR_CID,
+        "support_phone": config.settings.stage3.support_phone,
         "verify_note": ("Before the call starts we'll email you a one-time code to confirm it's you. "
                         if config.settings.stage3.verify_email else ""),
     }, images=[InlineImage(cid=QR_CID, data=qr_png(url), filename="screening-link-qr.png")])
@@ -134,3 +135,31 @@ def send_reminders(ctx, mailer: Mailer, now: datetime | None = None) -> list[str
     if sent:
         ctx.logger.info("stage3_calling: %d reminder(s) sent", len(sent))
     return sent
+
+
+def email_interrupted_call(config: AppConfig, invites: InviteStore, entry: CandidateEntry, inv: Invite, mailer: Mailer,
+                           logger: logging.Logger):
+    """The call stopped partway: send the candidate their link again to finish it. Returns a Notification."""
+    from ..mailer import EmailError, render_email, valid_email
+    from ..schemas import Notification, utc_now
+
+    try:
+        name, address = candidate_contact(config, entry)
+    except Exception:
+        name, address = entry.display_name, None
+    if not valid_email(address):
+        return Notification(kind="call_interrupted", status="skipped", at=utc_now(), error="no valid email address in the resume")
+    job = config.job
+    try:
+        mailer.send(render_email("call_halted", to=address,
+                                 subject=f"Your screening call for {job.title} was interrupted: finish it here", values={
+            "first_name": first_name(name), "job_title": job.title, "company_name": job.company_name,
+            "link": interview_url(config, inv.token), "minutes": str(call_minutes(config)),
+            "expires_on": datetime.fromisoformat(inv.expires_at).strftime("%d %b %Y"),
+            "support_phone": config.settings.stage3.support_phone}))
+    except EmailError as e:
+        logger.error("stage3_calling: candidate_id=%s interrupted-call email failed: %s", entry.candidate_id, e)
+        return Notification(kind="call_interrupted", status="failed", to=address, at=utc_now(), error=str(e)[:500])
+    invites.update(inv.token, interrupted_emails=inv.interrupted_emails + 1)
+    logger.info("stage3_calling: candidate_id=%s interrupted-call email sent to %s", entry.candidate_id, mask_email(address))
+    return Notification(kind="call_interrupted", status="outbox" if mailer.mode == "outbox" else "sent", to=address, at=utc_now())

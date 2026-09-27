@@ -283,7 +283,8 @@ function Decisions({ e }) {
   const gates = [["shortlist", "Resume shortlist"], ["final", "Final decision"]];
   const rows = gates.filter(([g]) => e.reviews?.[g] || e.notifications?.[g]);
   const clar = e.notifications?.credibility;
-  if (!rows.length && !clar) return null;
+  const halted = e.notifications?.screening;
+  if (!rows.length && !clar && !halted) return null;
   return (
     <Section title="Decisions & emails">
       {rows.map(([g, l]) => {
@@ -306,6 +307,13 @@ function Decisions({ e }) {
         <div className="box stack tight small">
           <b>Clarification request</b>
           <EmailLine n={clar} />
+        </div>
+      )}
+      {halted && (
+        <div className="box stack tight small">
+          <b>Screening call interrupted</b>
+          <span className="muted">The call stopped partway, so the candidate was emailed their link to finish it.</span>
+          <EmailLine n={halted} />
         </div>
       )}
     </Section>

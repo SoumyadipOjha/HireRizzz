@@ -846,6 +846,7 @@ def serve(config: AppConfig, port: int = 8765, open_browser: bool = True, host: 
 
     ctx = RunContext.create(config)
     interviews = InterviewService(ctx, llm_factory=lambda: make_client(config))
+    interviews.start_idle_sweeper()
     httpd = ThreadingHTTPServer((host, port), partial(Handler, api=DashboardAPI(config, ctx=ctx, llm_factory=lambda: make_client(config)), interviews=interviews))
     url = f"http://127.0.0.1:{port}/"
     print(f"Dashboard:  {url}   (storage: {config.store.describe()})", flush=True)

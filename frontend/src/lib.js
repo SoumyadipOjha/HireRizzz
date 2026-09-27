@@ -33,7 +33,7 @@ export const LABEL = {
   skipped: "Skipped", pending: "Not started", running: "Running", sent: "Sent", outbox: "Outbox",
   selected: "Shortlisted", not_selected: "Not shortlisted", open: "Open", closed: "Closed",
   positive: "Positive", neutral: "Neutral", negative: "Negative", mixed: "Mixed",
-  completed: "Completed", abandoned: "Abandoned", opted_out: "Opted out", rescheduled: "Rescheduled",
+  completed: "Completed", abandoned: "Interrupted", call_interrupted: "call interrupted", opted_out: "Opted out", rescheduled: "Rescheduled",
 };
 export const label = (v) => (v == null ? "—" : LABEL[v] || String(v).replace(/_/g, " "));
 

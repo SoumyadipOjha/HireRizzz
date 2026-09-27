@@ -1,0 +1,13 @@
+Hi {{first_name}},
+
+Your screening conversation for {{job_title}} at {{company_name}} stopped before it finished. That can happen if the connection drops or the page is closed. No problem: your link still works.
+
+Open it again whenever you're ready to complete the screening. It takes about {{minutes}} minutes, and the link works until {{expires_on}}.
+
+Complete my screening: {{link}}
+
+Website not working? Call us on {{support_phone}} and we'll do your screening round over the phone.
+
+The link is personal to you, so please don't forward it.
+
+{{company_name}} Recruiting

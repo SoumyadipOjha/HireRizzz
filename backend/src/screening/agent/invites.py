@@ -43,6 +43,7 @@ class Invite(BaseModel):
     reminders_sent: int = 0
     last_reminded_at: str | None = None
     opened_at: str | None = None
+    interrupted_emails: int = 0          # "your call was interrupted, finish it here" emails sent
     # one-time code before the call (hashes only; the code and access key are never stored)
     otp_hash: str | None = None
     otp_sent_at: str | None = None

@@ -288,3 +288,57 @@ def test_finalize_without_candidate_speech_keeps_awaiting(ctx):
     assert finalize_dialogue(ctx, FakeLLM(), d) is None
     st = ctx.index.get(aarav.candidate_id).stages["stage3_calling"]
     assert st.status == "awaiting" and "before the candidate said anything" in st.note
+
+
+def _emails(ctx, kind):
+    from email import policy
+    from email.parser import BytesParser
+
+    out = ctx.config.data.root / "outbox"
+    return [BytesParser(policy=policy.default).parsebytes(p.read_bytes())
+            for p in sorted(out.glob(f"*_{kind}_*.eml"))] if out.exists() else []
+
+
+def test_an_interrupted_call_emails_the_link_and_phone_number(live):
+    import time
+
+    base, token, cid, svc, ctx = live
+    s3 = ctx.config.settings.stage3
+    s3.interrupted_grace_seconds = 0
+    invite = _emails(ctx, "invite")[-1].get_body(("plain",)).get_content()
+    assert s3.support_phone == "+1 (463) 215-0098" and s3.support_phone in invite   # the phone is in the invite
+
+    _, _, r = _call(f"{base}/api/interview/{token}/start", {"channel": "browser_text"})
+    _call(f"{base}/api/interview/{token}/turn", {"session_id": r["session_id"], "text": "yes"})
+    _call(f"{base}/api/interview/{token}/end", {"session_id": r["session_id"]})          # stops partway
+    for _ in range(3):
+        svc.wait_for_finalizers()
+        time.sleep(0.2)
+    [mail] = _emails(ctx, "call_halted")
+    text = mail.get_body(("plain",)).get_content()
+    assert "interrupted" in mail["Subject"] and token in text and "+1 (463) 215-0098" in text
+    assert svc.invites.get(token).interrupted_emails == 1
+    assert ctx.index.reload().get(cid).notifications["screening"].kind == "call_interrupted"
+
+    # a call that never got past the greeting sends nothing; neither does an idle close once the cap is hit
+    _, _, r = _call(f"{base}/api/interview/{token}/start", {"channel": "browser_text"})
+    _call(f"{base}/api/interview/{token}/end", {"session_id": r["session_id"]})
+    svc.wait_for_finalizers()
+    time.sleep(0.2)
+    assert len(_emails(ctx, "call_halted")) == 1
+
+
+def test_idle_calls_are_closed_as_interrupted(live):
+    import time
+
+    base, token, cid, svc, ctx = live
+    ctx.config.settings.stage3.interrupted_grace_seconds = 0
+    _, _, r = _call(f"{base}/api/interview/{token}/start", {"channel": "browser_voice"})
+    _call(f"{base}/api/interview/{token}/turn", {"session_id": r["session_id"], "text": "yes"})
+    assert svc.close_idle() == 0                                          # still active
+    assert svc.close_idle(now=time.monotonic() + 3600) == 1               # connection dropped long ago
+    for _ in range(3):
+        svc.wait_for_finalizers()
+        time.sleep(0.2)
+    assert ctx.index.reload().get(cid).stages["stage3_calling"].status == "awaiting"
+    assert len(_emails(ctx, "call_halted")) == 1

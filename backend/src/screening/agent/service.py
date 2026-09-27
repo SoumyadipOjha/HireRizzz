@@ -10,7 +10,8 @@
 from __future__ import annotations
 
 import threading
-from dataclasses import dataclass
+import time
+from dataclasses import dataclass, field
 from typing import Callable
 
 from ..context import RunContext
@@ -28,6 +29,9 @@ class _Live:
     token: str
     dialogue: ScreeningDialogue
     lock: threading.Lock
+    last_active: float = field(default_factory=time.monotonic)
+
+INTERRUPTED = ("abandoned", "failed")  # outcomes that mean "the call stopped partway"
 
 
 class InterviewService:
@@ -116,6 +120,7 @@ class InterviewService:
 
     def turn(self, token: str, session_id: str, text: str) -> dict:
         live = self._get(token, session_id)
+        live.last_active = time.monotonic()
         with live.lock:  # one turn at a time per session (double-submits are serialised)
             if live.dialogue.ended:
                 return {"say": "", "ended": True, "outcome": live.dialogue.state.outcome}
@@ -181,6 +186,7 @@ class InterviewService:
                 cid = live.dialogue.state.candidate_id
                 try:
                     finalize_dialogue(self.ctx, self.llm, live.dialogue, self.invites, live.token)
+                    self._schedule_interrupted_email(live)
                     # A completed call is scored straight away, so the dashboard fills in while the
                     # candidate is still on the thank-you page (run_stage4 log-and-skips on its own).
                     if self.ctx.index.reload().get(cid).stages["stage3_calling"].status == "success":
@@ -194,6 +200,66 @@ class InterviewService:
         t = threading.Thread(target=work, name=f"finalize-{live.dialogue.state.session_id[:8]}", daemon=True)
         self._threads.append(t)
         t.start()
+
+    # -------------------------------------------------------------- interrupted calls
+
+    def _schedule_interrupted_email(self, live: _Live) -> None:
+        """The candidate had started but the call stopped partway: email them the link to finish it,
+        once the grace period shows they didn't simply reload the page and carry on."""
+        st = live.dialogue.state
+        s3 = self.ctx.config.settings.stage3
+        if not s3.email_on_interrupted_call or (st.outcome or "abandoned") not in INTERRUPTED:
+            return
+        if not any(t.speaker == "candidate" for t in st.turns):
+            return
+        t = threading.Timer(s3.interrupted_grace_seconds, self._send_interrupted_email, args=(live.token, st.candidate_id))
+        t.daemon = True
+        self._threads.append(t)
+        t.start()
+
+    def _send_interrupted_email(self, token: str, cid: str) -> None:
+        from .notify import email_interrupted_call
+
+        try:
+            with self._lock:
+                if any(l.token == token for l in self._live.values()):
+                    return  # they're back in a call already
+            inv = self.invites.get(token)
+            if inv is None or inv.status != "active" or inv.expired():
+                return
+            if inv.interrupted_emails >= self.ctx.config.settings.stage3.max_interrupted_emails:
+                return
+            with self.ctx.lock:
+                entry = self.ctx.index.reload().get(cid)
+                if entry.stages["stage3_calling"].status == "success" or entry.fraud_blocked:
+                    return
+                n = email_interrupted_call(self._config(entry), self.invites, entry, inv, self.mailer, self.ctx.logger)
+                self.ctx.index.set_notification(cid, "screening", n)
+        except Exception as e:  # e.g. email not configured: never breaks the interview service
+            self.ctx.logger.error("stage3 agent: interrupted-call email for candidate_id=%s failed: %s", cid, e)
+
+    def close_idle(self, now: float | None = None) -> int:
+        """Close calls with no activity for stage3.idle_minutes (the candidate's connection dropped).
+        Returns how many were closed; each one is finalized as interrupted."""
+        limit = self.ctx.config.settings.stage3.idle_minutes * 60
+        now = time.monotonic() if now is None else now
+        with self._lock:
+            idle = [(sid, l) for sid, l in self._live.items() if now - l.last_active >= limit]
+            for sid, live in idle:
+                self.ctx.logger.info("stage3 agent: session=%s idle, closing it as interrupted", sid)
+                self._close(sid, live)
+        return len(idle)
+
+    def start_idle_sweeper(self, every_seconds: float = 30) -> None:
+        def loop():
+            while True:
+                time.sleep(every_seconds)
+                try:
+                    self.close_idle()
+                except Exception as e:
+                    self.ctx.logger.error("stage3 agent: idle sweep failed: %s", e)
+
+        threading.Thread(target=loop, name="idle-calls", daemon=True).start()
 
     def wait_for_finalizers(self, timeout: float = 60) -> None:
         for t in list(self._threads):

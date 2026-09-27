@@ -142,6 +142,14 @@ class Stage3Config(_Strict):
     otp_expiry_minutes: int = Field(default=10, gt=0)
     otp_max_attempts: int = Field(default=5, gt=0)
     otp_resend_seconds: int = Field(default=30, ge=0)  # minimum gap between two codes
+    # Shown in every screening email: candidates can call it if the website is down.
+    support_phone: str = "+1 (463) 215-0098"
+    # A call that stops partway (dropped connection, page closed, AI failure) emails the candidate their
+    # link again to finish, after a short grace period (a quick reload doesn't trigger it), at most N times.
+    email_on_interrupted_call: bool = True
+    interrupted_grace_seconds: float = Field(default=45, ge=0)
+    max_interrupted_emails: int = Field(default=3, ge=0)
+    idle_minutes: float = Field(default=10, gt=0)  # a call with no activity this long is closed as interrupted
 
     @field_validator("public_base_url")
     @classmethod

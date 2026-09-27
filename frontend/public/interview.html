@@ -116,6 +116,7 @@ footer { margin-top: auto; padding-top: 18px; text-align: center; font-size: 12p
     <div class="eyebrow">Screening call</div>
     <h1 id="err-title">This link isn't available</h1>
     <p class="muted" id="err-text"></p>
+    <p class="muted" style="margin-top:14px">Website not working? Call <b>+1 (463) 215-0098</b> and we'll do your screening round over the phone.</p>
   </section>
 
   <!-- email verification (one-time code) -->
@@ -416,7 +417,7 @@ async function send(text) {
   } catch (e) {
     typing(false); S.busy = false;
     if (e.status === 410) { fail("This conversation has ended", e.message); return; }
-    addMsg("agent", "Sorry, I couldn't reach the server. Please check your connection and try again.");
+    addMsg("agent", "Sorry, I couldn't reach the server. Please check your connection and try again. If the website keeps failing, call +1 (463) 215-0098 to do your screening round by phone.");
     $("input").disabled = false; $("b-send").disabled = false;
     if (S.mode === "voice") listen(); else setState("", "Connection problem: try again");
   }
