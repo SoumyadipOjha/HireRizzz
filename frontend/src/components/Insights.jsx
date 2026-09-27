@@ -63,7 +63,6 @@ export default function Insights({ data, onPost }) {
           </p>
         </div>
         <div className="hero-actions">
-          {t.need_review > 0 && <button className="btn" onClick={openBoard}>Review now →</button>}
           <button className="btn primary shine" onClick={onPost}>+ Post a job</button>
         </div>
       </div>
