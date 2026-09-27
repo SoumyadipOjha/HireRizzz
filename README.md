@@ -8,7 +8,7 @@ An AI recruiting assistant: it writes the job post, reads and scores every resum
 holds a voice screening call with each shortlisted candidate, scores the interview with evidence, and
 emails everyone their result. **People make every decision that matters.**
 
-[Live app](https://hire-rizzz.vercel.app) · [API health](https://hirerizzz.onrender.com/api/health) ·
+[Live app](https://hire-rizzz.vercel.app) · [API health](https://hirerizzz.onrender.com/api/health) · [Technical docs](docs/TECHNICAL.md) ·
 [Backend README](backend/README.md) · [Frontend README](frontend/README.md)
 
 </div>
