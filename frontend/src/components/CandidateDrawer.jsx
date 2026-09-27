@@ -54,7 +54,7 @@ export default function CandidateDrawer({ cid, overview, jobStatus, onClose, onC
           {[
             ["overview", "Overview"],
             ["resume", "Resume"],
-            ["interview", "Interview"],
+            ["interview", "Screening"],
             ["credibility", "Credibility"],
           ].map(([k, l]) => (
             <button key={k} className={`tab${tab === k ? " on" : ""}`} onClick={() => setTab(k)}>
@@ -108,7 +108,7 @@ function OverviewTab({ d, e, ov, onChanged, goTo }) {
         <div className="box bad stack tight">
           <b>Fraud detected: this candidate is stopped</b>
           <span className="small">
-            {e.credibility?.red ?? ""} issue(s) found in the resume. No scoring, invite, interview or approval until a recruiter clears it.
+            {e.credibility?.red ?? ""} issue(s) found in the resume. No scoring, invite, screening or approval until a recruiter clears it.
           </span>
           <div><button className="btn sm" onClick={() => goTo("credibility")}>Review the issues</button></div>
         </div>
@@ -120,10 +120,11 @@ function OverviewTab({ d, e, ov, onChanged, goTo }) {
       {(s2 || s4) && (
         <div className="scores">
           <div className="score-tile"><span>Resume score</span><b>{num(s2?.overall_score, 0)}</b></div>
-          <div className="score-tile"><span>Interview score</span><b>{num(s4?.interview_score, 0)}</b></div>
+          <div className="score-tile"><span>Screening score</span><b>{num(s4?.interview_score, 0)}</b></div>
           <div className="score-tile"><span>Final score</span><b>{num(s4?.final_score, 1)}</b></div>
         </div>
       )}
+      {(s2 || s4) && <ScoreBreakdown s2={s2} s4={s4} />}
 
       <Section title="Progress">
         <div className="timeline">
@@ -189,8 +190,8 @@ function ShortlistDecision({ e, s2, ov, onChanged }) {
   const go = (to) =>
     decide("shortlist", e.candidate_id, to,
       (by) => `${to === "shortlisted" ? "Shortlist" : "Reject"} ${nameOf(e)} as ${by}?${to !== ai ? "\n\nThis overrides the AI's suggestion." : ""}\n\n` +
-        (to === "shortlisted" ? `They get their interview link by email${outbox}.` : `They get a polite rejection email${outbox}.`),
-      (r) => (to === "shortlisted" ? `Shortlisted. ${r.invited?.length ? "Interview invite sent." : ""}` : "Rejected. Email sent."),
+        (to === "shortlisted" ? `They get their screening link by email${outbox}.` : `They get a polite rejection email${outbox}.`),
+      (r) => (to === "shortlisted" ? `Shortlisted. ${r.invited?.length ? "Screening invite sent." : ""}` : "Rejected. Email sent."),
       onChanged);
   return (
     <div className="decision-card attn">
@@ -226,7 +227,7 @@ function FinalDecision({ e, s4, ov, onChanged }) {
     <div className="decision-card attn">
       <div className="row between">
         <b>Final decision</b>
-        <span className="faint small">Hiring manager · after the interview</span>
+        <span className="faint small">Hiring manager · after the screening</span>
       </div>
       <div className="row" style={{ gap: 14 }}>
         <span className="big-score">{num(s4?.final_score, 1)}</span>
@@ -234,7 +235,7 @@ function FinalDecision({ e, s4, ov, onChanged }) {
           <div>AI suggests <Pill value={ai} /> <span className="faint">(pass mark {ov.evaluation?.final_threshold})</span></div>
           {s4 && (
             <div className="muted" style={{ marginTop: 3 }}>
-              Resume {num(s4.resume_score, 0)} × {s4.resume_weight} + interview {num(s4.interview_score, 0)} × {s4.interview_weight}
+              Resume {num(s4.resume_score, 0)} × {s4.resume_weight} + screening {num(s4.interview_score, 0)} × {s4.interview_weight}
             </div>
           )}
         </div>
@@ -242,7 +243,7 @@ function FinalDecision({ e, s4, ov, onChanged }) {
       {ai === "rejected" && <div className="box warn small">Below the pass mark. You can still select them: your decision is recorded as an override.</div>}
       {s4?.needs_review && <div className="box warn small"><b>Look closely before deciding:</b> {(s4.review_reasons || []).join(" · ")}</div>}
       <div className="row">
-        <button className="btn ok" onClick={() => go("shortlisted")}>Select</button>
+        <button className="btn ok" onClick={() => go("shortlisted")}>Shortlist</button>
         <button className="btn danger" onClick={() => go("rejected")}>Reject</button>
       </div>
     </div>
@@ -263,7 +264,7 @@ function DecidedFinal({ e, s4, onChanged }) {
   return (
     <div className={`decision-card ${f.decision === "shortlisted" ? "" : ""}`}>
       <div className="row between">
-        <b>{f.decision === "shortlisted" ? "Selected" : "Not selected"}</b>
+        <b>{f.decision === "shortlisted" ? "Shortlisted" : "Not shortlisted"}</b>
         <Pill value={f.decision === "shortlisted" ? "selected" : "rejected"} />
       </div>
       <div className="small muted">
@@ -317,13 +318,13 @@ function Invite({ d, e }) {
   const s3 = d.records?.stage3_calling;
   if (!inv && st3.status !== "awaiting") return null;
   return (
-    <Section title={s3 ? "Interview link (another attempt)" : "Screening call invite"}>
+    <Section title={s3 ? "Screening link (another attempt)" : "Screening call invite"}>
       {inv ? (
         <div className="box stack tight">
           <div className="small">
             {s3
               ? `Last call: ${label(s3.call?.status)}${s3.call?.reschedule_note ? ` (${s3.call.reschedule_note})` : ""}. The link below still works.`
-              : "Shortlisted: waiting for the candidate to open their interview link."}
+              : "Shortlisted: waiting for the candidate to open their screening link."}
           </div>
           <div className="row">
             <input className="input mono" readOnly value={inv.url} onFocus={(ev) => ev.target.select()} />
@@ -350,3 +351,74 @@ function Invite({ d, e }) {
   );
 }
 
+
+// ------------------------------------------------------------------ how the AI's scores add up
+
+const nice = (s) => s.replace(/_/g, " ").replace(/^./, (c) => c.toUpperCase());
+
+function BreakdownTable({ title, rows, total, totalLabel, passMark }) {
+  return (
+    <div className="bd">
+      <div className="bd-head">
+        <b>{title}</b>
+        <span className="faint small">score × weight = points</span>
+      </div>
+      {rows.map((r) => (
+        <div key={r.name} className="bd-row">
+          <span className="bd-name">{nice(r.name)}</span>
+          <span className="bd-bar"><span style={{ width: `${Math.max(0, Math.min(100, r.score))}%` }} /></span>
+          <span className="bd-num"><b>{num(r.score, 0)}</b><span className="faint">/100</span></span>
+          <span className="bd-w">× {Math.round(r.weight * 100)}%</span>
+          <span className="bd-pts">= <b>{num(r.points, 1)}</b></span>
+        </div>
+      ))}
+      <div className="bd-row bd-total">
+        <span className="bd-name">{totalLabel}</span>
+        <span className="bd-bar" />
+        <span />
+        <span className="bd-w">{passMark != null ? `pass ${passMark}` : ""}</span>
+        <span className="bd-pts">= <b>{num(total, 1)}</b></span>
+      </div>
+    </div>
+  );
+}
+
+function ScoreBreakdown({ s2, s4 }) {
+  return (
+    <Section title="Score breakdown" right={<span className="faint small" style={{ textTransform: "none", letterSpacing: 0, fontWeight: 400 }}>how the AI's scores add up</span>}>
+      {s2 && (
+        <BreakdownTable title="Resume score" totalLabel="Resume score" total={s2.overall_score} passMark={s2.threshold}
+          rows={(s2.criteria || []).map((c) => ({ name: c.criterion, score: c.score, weight: c.weight, points: c.weighted_score }))} />
+      )}
+      {s4 && (
+        <BreakdownTable title="Screening score" totalLabel="Screening score" total={s4.interview_score}
+          rows={(s4.competencies || []).map((c) => ({ name: c.competency, score: c.score, weight: c.weight, points: c.weighted_score }))} />
+      )}
+      {s4 && (
+        <div className="bd bd-final">
+          <div className="bd-row">
+            <span className="bd-name">Resume</span>
+            <span className="bd-bar"><span style={{ width: `${s4.resume_score}%` }} /></span>
+            <span className="bd-num"><b>{num(s4.resume_score, 0)}</b></span>
+            <span className="bd-w">× {Math.round(s4.resume_weight * 100)}%</span>
+            <span className="bd-pts">= <b>{num(s4.resume_score * s4.resume_weight, 1)}</b></span>
+          </div>
+          <div className="bd-row">
+            <span className="bd-name">Screening</span>
+            <span className="bd-bar"><span style={{ width: `${s4.interview_score}%` }} /></span>
+            <span className="bd-num"><b>{num(s4.interview_score, 0)}</b></span>
+            <span className="bd-w">× {Math.round(s4.interview_weight * 100)}%</span>
+            <span className="bd-pts">= <b>{num(s4.interview_score * s4.interview_weight, 1)}</b></span>
+          </div>
+          <div className="bd-row bd-total">
+            <span className="bd-name">Final score</span>
+            <span className="bd-bar" />
+            <span />
+            <span className="bd-w">pass {s4.threshold}</span>
+            <span className="bd-pts">= <b>{num(s4.final_score, 1)}</b></span>
+          </div>
+        </div>
+      )}
+    </Section>
+  );
+}

@@ -87,8 +87,10 @@ export const api = {
   requestClarification: (cid) => request(`/api/candidate/${cid}/request-clarification`, { method: "POST", body: {} }),
   jdDraft: () => request("/api/jd/draft"),
   writeJd: (brief, company_name) => request("/api/jd/draft", { method: "POST", body: { brief, company_name } }),
-  postJob: (job, questions, by, jobId) =>
-    request("/api/jobs", { method: "POST", body: { job, questions, by, job_id: jobId || undefined } }),
+  postJob: (job, questions, by, jobId, deadline) =>
+    request("/api/jobs", { method: "POST", body: { job, questions, by, job_id: jobId || undefined, deadline: deadline ?? "" } }),
+  draftFromDocument: (name, data, company_name) =>
+    request("/api/jd/upload", { method: "POST", body: { name, data, company_name } }),
 };
 
 export function fileToBase64(file) {

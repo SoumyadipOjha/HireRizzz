@@ -146,7 +146,7 @@ function FraudActions({ e, red, onChanged }) {
       <div>
         <b>Fraud detected</b>
         <div className="small">
-          {red ?? ""} issue(s) below. This candidate is stopped: no scoring, invite, interview or approval.
+          {red ?? ""} issue(s) below. This candidate is stopped: no scoring, invite, screening or approval.
         </div>
       </div>
       <div className="stack tight">

@@ -132,3 +132,38 @@ def test_jd_writer_over_http(jd_ctx):
     finally:
         httpd.shutdown()
         httpd.server_close()
+
+
+def test_upload_a_job_description_and_set_a_deadline(jd_ctx):
+    import base64
+
+    from docx import Document
+
+    ctx, cfg_dir = jd_ctx
+    llm = FakeLLM()
+    api = DashboardAPI(ctx.config, ctx=ctx, llm_factory=lambda: llm)
+    text = "Senior Data Engineer, Pune. 3-6 years. Python, SQL, Airflow. Build and run our pipelines."
+    r = api.draft_from_document({"name": "jd.txt", "data": base64.b64encode(text.encode()).decode()})
+    assert r["draft"]["job"]["title"] == "Data Engineer" and r["draft"]["from_document"] and r["draft"]["source_file"] == "jd.txt"
+    assert "uploaded an existing job description" in llm.calls[-1][1] and text in llm.calls[-1][1]
+
+    doc = Document()
+    doc.add_paragraph(text * 3)
+    path = cfg_dir / "jd.docx"
+    doc.save(path)
+    r = api.draft_from_document({"name": "JD.docx", "data": base64.b64encode(path.read_bytes()).decode()})
+    assert r["draft"]["job"]["job_id"].startswith("data-engineer-")
+    with pytest.raises(JDError, match=".docx, .pdf or .txt"):
+        api.draft_from_document({"name": "jd.png", "data": "aGk="})
+
+    d = r["draft"]
+    posted = api.approve_jd({"by": "Dev", "job": d["job"], "questions": d["questions"], "deadline": "2030-10-15"})
+    jid = posted["job_id"]
+    assert ctx.config.jobs.get(jid).deadline == "2030-10-15"
+    assert api.job(jid)["deadline"] == "2030-10-15"
+    api.approve_jd({"by": "Dev", "job": d["job"], "questions": d["questions"], "job_id": jid})   # no deadline key: kept
+    assert ctx.config.jobs.get(jid).deadline == "2030-10-15"
+    api.approve_jd({"by": "Dev", "job": d["job"], "questions": d["questions"], "job_id": jid, "deadline": ""})
+    assert ctx.config.jobs.get(jid).deadline is None                                          # cleared
+    with pytest.raises(JDError, match="not a date"):
+        api.approve_jd({"by": "Dev", "job": d["job"], "questions": d["questions"], "deadline": "next friday"})

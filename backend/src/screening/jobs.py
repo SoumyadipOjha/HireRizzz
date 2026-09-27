@@ -9,7 +9,7 @@ predate jobs (no job_id) belong to it: the *default job*.
 from __future__ import annotations
 
 import re
-from datetime import date
+from datetime import date, datetime
 from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field
@@ -28,10 +28,24 @@ class JobRecord(BaseModel):
     updated_at: str = Field(default_factory=utc_now)
     posted_by: str | None = None
     is_default: bool = False               # holds candidates that predate jobs
+    deadline: str | None = None            # applications close (ISO date or date-time); shown as a countdown
 
 
 class JobError(ValueError):
     """Unknown job, or an invalid job definition."""
+
+
+def parse_deadline(value) -> str | None:
+    """"" / None = no deadline; otherwise an ISO date ("2026-10-15") or date-time, stored as given."""
+    if value in (None, ""):
+        return None
+    if not isinstance(value, str):
+        raise JobError("deadline must be a date like 2026-10-15")
+    try:
+        datetime.fromisoformat(value.strip().replace("Z", "+00:00"))
+    except ValueError:
+        raise JobError(f"deadline {value!r} is not a date like 2026-10-15") from None
+    return value.strip()
 
 
 def slug(text: str) -> str:
@@ -122,21 +136,26 @@ class JobStore:
         self._load()[jd.job_id] = rec
         return rec
 
-    def create(self, job: dict, questions: list[dict], *, posted_by: str | None = None) -> JobRecord:
+    def create(self, job: dict, questions: list[dict], *, posted_by: str | None = None,
+               deadline: str | None = None) -> JobRecord:
         job = dict(job)
         base = job.get("job_id") or f"{slug(job.get('title') or 'job')}-{date.today():%Y%m%d}"
         jid, n = base, 2
         while jid in self._load():
             jid, n = f"{base}-{n}", n + 1
         job["job_id"] = jid
-        return self.save(JobRecord(job=job, questions=questions, posted_by=posted_by))
+        return self.save(JobRecord(job=job, questions=questions, posted_by=posted_by, deadline=parse_deadline(deadline)))
 
     def set_status(self, job_id: str, status: JobStatus) -> JobRecord:
         return self.save(self.get(job_id).model_copy(update={"status": status}))
 
-    def update(self, job_id: str, job: dict, questions: list[dict]) -> JobRecord:
+    def update(self, job_id: str, job: dict, questions: list[dict], **extra) -> JobRecord:
+        """extra: deadline=<ISO date | None> to change it (left out: kept)."""
         rec = self.get(job_id)
-        return self.save(rec.model_copy(update={"job": {**job, "job_id": job_id}, "questions": questions}))
+        upd = {"job": {**job, "job_id": job_id}, "questions": questions}
+        if "deadline" in extra:
+            upd["deadline"] = parse_deadline(extra["deadline"])
+        return self.save(rec.model_copy(update=upd))
 
     def _import_yaml_job(self) -> dict[str, JobRecord]:
         """First run with jobs: the YAML job becomes the default job."""

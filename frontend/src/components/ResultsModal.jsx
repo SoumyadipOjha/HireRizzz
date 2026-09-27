@@ -77,7 +77,7 @@ export default function ResultsModal({ jobId, overview, onClose, onChanged, onOp
               <div className="card" style={{ overflowX: "auto" }}>
                 <table className="table">
                   <thead>
-                    <tr><th>Candidate</th><th>Final</th><th>Resume</th><th>Interview</th><th>AI suggested</th><th>Decided by</th><th>Result email</th><th /></tr>
+                    <tr><th>Candidate</th><th>Final</th><th>Resume</th><th>Screening</th><th>AI suggested</th><th>Decided by</th><th>Result email</th><th /></tr>
                   </thead>
                   <tbody>
                     {data[k].map((row) => (
@@ -98,7 +98,7 @@ export default function ResultsModal({ jobId, overview, onClose, onChanged, onOp
                         <td>
                           {k === "awaiting_approval" ? (
                             <div className="row">
-                              <button className="btn sm" onClick={() => move(row, "shortlisted")}>Select</button>
+                              <button className="btn sm" onClick={() => move(row, "shortlisted")}>Shortlist</button>
                               <button className="btn sm" onClick={() => move(row, "rejected")}>Reject</button>
                             </div>
                           ) : (

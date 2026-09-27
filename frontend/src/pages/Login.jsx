@@ -74,7 +74,7 @@ export default function Login() {
           <button className="btn primary shine lg" disabled={busy || !username || !password}>
             {busy ? <><Spinner /> Signing in…</> : "Sign in →"}
           </button>
-          <p className="faint small center">Candidates don't need an account: their interview link is their key.</p>
+          <p className="faint small center">Candidates don't need an account: their screening link is their key.</p>
         </form>
       </main>
     </div>

@@ -1,5 +1,5 @@
-import { useEffect, useState } from "react";
-import { api } from "../api.js";
+import { useEffect, useRef, useState } from "react";
+import { api, fileToBase64 } from "../api.js";
 import { fmtTime, requireApprover, toast } from "../lib.js";
 import { Modal, Spinner } from "../ui.jsx";
 
@@ -13,9 +13,11 @@ export default function PostJobModal({ onClose, onPosted, edit = null }) {
   const [draft, setDraft] = useState(edit ? { job: edit.job, questions: edit.questions } : null);
   const [busy, setBusy] = useState(null);
   const [secs, setSecs] = useState(0);
+  const [deadline, setDeadline] = useState(edit?.deadline ? String(edit.deadline).slice(0, 10) : "");
+  const fileRef = useRef(null);
 
   useEffect(() => {
-    if (busy !== "draft") return undefined;
+    if (busy !== "draft" && busy !== "upload") return undefined;
     setSecs(0);
     const t = setInterval(() => setSecs((x) => x + 1), 1000);
     return () => clearInterval(t);
@@ -46,6 +48,21 @@ export default function PostJobModal({ onClose, onPosted, edit = null }) {
     }
   }
 
+  async function upload(file) {
+    if (!file) return;
+    setBusy("upload");
+    try {
+      const r = await api.draftFromDocument(file.name, await fileToBase64(file), company);
+      setDraft(r.draft);
+      toast(`Converted ${file.name} into a job. Review it, then post.`, "ok");
+    } catch (e) {
+      toast(`Couldn't convert the file: ${e.message}`, "error");
+    } finally {
+      setBusy(null);
+      if (fileRef.current) fileRef.current.value = "";
+    }
+  }
+
   async function post() {
     const by = requireApprover();
     if (!by) return;
@@ -70,7 +87,7 @@ export default function PostJobModal({ onClose, onPosted, edit = null }) {
     try {
       const questions = draft.questions.filter((q) => q.question.trim()).map(({ fresh, ...q }) => ({ ...q, question: q.question.trim() }));
       if (!questions.length) throw new Error("Add at least one screening question.");
-      const r = await api.postJob(job, questions, by, edit?.jobId);
+      const r = await api.postJob(job, questions, by, edit?.jobId, deadline);
       toast(edit ? "Job updated." : `Posted ${r.title}.`, "ok");
       onPosted(r.job_id);
     } catch (e) {
@@ -125,15 +142,23 @@ export default function PostJobModal({ onClose, onPosted, edit = null }) {
             <label className="field grow"><span>Company</span>
               <input className="input" maxLength={80} value={company} onChange={(e) => setCompany(e.target.value)} />
             </label>
-            <button className="btn" style={{ alignSelf: "flex-end" }} disabled={busy === "draft" || brief.trim().length < 20} onClick={write}>
+            <button className="btn" style={{ alignSelf: "flex-end" }} disabled={!!busy || brief.trim().length < 20} onClick={write}>
               {busy === "draft" ? <><Spinner /> Drafting… {secs}s</> : draft ? "Draft again with AI" : "Draft with AI"}
             </button>
           </div>
-          {busy === "draft" && (
+          <div className="upload-jd">
+            <div className="or"><span>or</span></div>
+            <input ref={fileRef} type="file" accept=".docx,.pdf,.txt" hidden onChange={(e) => upload(e.target.files[0])} />
+            <button className="btn upload-jd-btn" disabled={!!busy} onClick={() => fileRef.current?.click()}>
+              {busy === "upload" ? <><Spinner /> Converting your file… {secs}s</> : <>⬆ Upload a job description <span className="faint">(.docx, .pdf or .txt)</span></>}
+            </button>
+            <span className="faint small">The AI turns an existing job description into this format: title, skills, experience and screening questions, all editable.</span>
+          </div>
+          {(busy === "draft" || busy === "upload") && (
             <div className="draft-progress">
               <div className="draft-bar"><span style={{ width: `${Math.min(95, 100 * (1 - Math.exp(-secs / 9)))}%` }} /></div>
               <span className="faint small">
-                {secs < 12 ? "The AI is writing the description, skills and interview questions: usually 5–15 seconds."
+                {secs < 12 ? "The AI is writing the description, skills and screening questions: usually 5–15 seconds."
                   : secs < 30 ? "Still writing. The main AI model may be busy, so a backup model is answering."
                   : "Taking longer than usual: the server may be waking up after a quiet spell (up to a minute)."}
               </span>
@@ -146,7 +171,7 @@ export default function PostJobModal({ onClose, onPosted, edit = null }) {
         <div className="stack" style={{ borderTop: edit ? 0 : "1px solid var(--border)", paddingTop: edit ? 0 : 16 }}>
           {!edit && (
             <div className="row between">
-              <b>AI draft · not posted yet</b>
+              <b>{draft.from_document ? `Converted from ${draft.source_file || "your file"} · not posted yet` : "AI draft · not posted yet"}</b>
               <span className="faint small">{draft.llm} {draft.created_at && `· ${fmtTime(draft.created_at)}`}</span>
             </div>
           )}
@@ -156,6 +181,14 @@ export default function PostJobModal({ onClose, onPosted, edit = null }) {
               <ul style={{ margin: "4px 0 0", paddingLeft: 18 }}>{draft.language_notes.map((n, i) => <li key={i}>{n}</li>)}</ul>
             </div>
           )}
+          <div className="grid2">
+            <label className="field"><span>Application deadline</span>
+              <input className="input" type="date" value={deadline} min={new Date().toISOString().slice(0, 10)} onChange={(e) => setDeadline(e.target.value)} />
+            </label>
+            <span className="faint small" style={{ alignSelf: "end", paddingBottom: 8 }}>
+              {deadline ? "A live countdown shows on the job's card and board." : "Optional: leave empty for no deadline."}
+            </span>
+          </div>
           <div className="grid2">
             <label className="field"><span>Title</span><input className="input" maxLength={120} value={j.title || ""} onChange={(e) => setJob("title", e.target.value)} /></label>
             <label className="field"><span>Location</span><input className="input" value={j.location || ""} onChange={(e) => setJob("location", e.target.value)} /></label>

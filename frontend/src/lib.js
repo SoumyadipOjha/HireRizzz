@@ -6,9 +6,9 @@ import { getSession, onSession } from "./api.js";
 export const COLUMNS = [
   { key: "applied", label: "Applied", hint: "Resume being read and scored" },
   { key: "resume_review", label: "Resume review", hint: "AI has scored it: a recruiter decides" },
-  { key: "interview", label: "Interview", hint: "Invited to the screening call" },
-  { key: "final_review", label: "Final review", hint: "Interviewed and scored: the manager decides" },
-  { key: "selected", label: "Selected", hint: "On the final shortlist" },
+  { key: "interview", label: "Screening", hint: "Invited to the AI screening call" },
+  { key: "final_review", label: "Final review", hint: "Screened and scored: the manager decides" },
+  { key: "selected", label: "Shortlisted", hint: "On the final shortlist" },
   { key: "rejected", label: "Rejected", hint: "Not moving forward" },
   { key: "fraud", label: "Fraud stopped", hint: "Stopped by the resume checks" },
 ];
@@ -18,7 +18,7 @@ export const STAGES = [
   ["stage1_extraction", "Resume read"],
   ["stage2_shortlisting", "Resume scored"],
   ["stage3_calling", "Screening call"],
-  ["stage4_evaluation", "Interview scored"],
+  ["stage4_evaluation", "Screening scored"],
 ];
 
 export const TONE = {
@@ -31,7 +31,7 @@ export const TONE = {
 export const LABEL = {
   shortlisted: "Shortlisted", rejected: "Rejected", success: "Done", failed: "Failed", awaiting: "Waiting",
   skipped: "Skipped", pending: "Not started", running: "Running", sent: "Sent", outbox: "Outbox",
-  selected: "Selected", not_selected: "Not selected", open: "Open", closed: "Closed",
+  selected: "Shortlisted", not_selected: "Not shortlisted", open: "Open", closed: "Closed",
   positive: "Positive", neutral: "Neutral", negative: "Negative", mixed: "Mixed",
   completed: "Completed", abandoned: "Abandoned", opted_out: "Opted out", rescheduled: "Rescheduled",
 };

@@ -35,14 +35,14 @@ export default function Insights({ data, onPost }) {
     { k: "Candidates", v: t.candidates, icon: "users", tone: "violet" },
     { k: "Open jobs", v: t.open_jobs, icon: "brief", tone: "blue", sub: `${t.jobs} posted` },
     { k: "Need your review", v: t.need_review, icon: "bell", tone: "amber", pulse: t.need_review > 0 },
-    { k: "AI interviews", v: t.interviews, icon: "mic", tone: "pink" },
-    { k: "Selected", v: t.selected, icon: "star", tone: "green" },
+    { k: "AI screenings", v: t.interviews, icon: "mic", tone: "pink" },
+    { k: "Shortlisted", v: t.selected, icon: "star", tone: "green" },
     { k: "Fraud caught", v: t.fraud, icon: "shield", tone: "red" },
   ];
 
   const outcomes = [
     { key: "progress", label: "In progress", value: data.columns.applied + data.columns.resume_review + data.columns.interview + data.columns.final_review, color: "#6d5efc" },
-    { key: "selected", label: "Selected", value: data.columns.selected, color: COL_COLOR.selected },
+    { key: "selected", label: "Shortlisted", value: data.columns.selected, color: COL_COLOR.selected },
     { key: "rejected", label: "Rejected", value: data.columns.rejected, color: "#cbd5e1" },
     { key: "fraud", label: "Fraud stopped", value: data.columns.fraud, color: COL_COLOR.fraud },
   ];

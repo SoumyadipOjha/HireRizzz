@@ -217,9 +217,43 @@ class DashboardAPI:
         llm = self._llm_factory() if self._llm_factory else make_client(self.config)
         return {"draft": draft_jd(self.config, llm, brief, company_name=company)}
 
+    def draft_from_document(self, body: dict) -> dict:
+        """An uploaded job description (.docx / .pdf / .txt) -> an AI draft in the usual format."""
+        import base64
+        import binascii
+        import tempfile
+
+        from ..jd_writer import JDError, draft_jd
+        from ..llm import make_client
+        from ..resume_reader import read_resume
+
+        name, data = body.get("name"), body.get("data")
+        if not isinstance(name, str) or not isinstance(data, str):
+            raise JDError("send the job description file as {name, data}")
+        suffix = Path(name).suffix.lower()
+        if suffix not in (".docx", ".pdf", ".txt"):
+            raise JDError("upload the job description as a .docx, .pdf or .txt file")
+        try:
+            raw = base64.b64decode(data, validate=True)
+        except (binascii.Error, ValueError):
+            raise JDError("file data is not valid base64") from None
+        if not raw or len(raw) > MAX_RESUME_BYTES:
+            raise JDError("the file is empty or larger than 10 MB")
+        if suffix == ".txt":
+            text = raw.decode("utf-8", errors="replace")
+        else:
+            with tempfile.TemporaryDirectory() as tmp:
+                p = Path(tmp) / f"jd{suffix}"
+                p.write_bytes(raw)
+                text = read_resume(p)
+        company = body.get("company_name") if isinstance(body.get("company_name"), str) else None
+        llm = self._llm_factory() if self._llm_factory else make_client(self.config)
+        draft = draft_jd(self.config, llm, text, company_name=company, from_document=True)
+        return {"draft": {**draft, "source_file": Path(name).name[:120]}}
+
     def approve_jd(self, body: dict) -> dict:
         """Post the (edited) draft as a new job, or update an existing one (body.job_id)."""
-        from ..jd_writer import JDError, approve_jd
+        from ..jd_writer import KEEP, JDError, approve_jd
 
         job, questions = body.get("job"), body.get("questions")
         if not isinstance(job, dict) or not isinstance(questions, list):
@@ -230,7 +264,8 @@ class DashboardAPI:
             scored = sum(e.stages["stage2_shortlisting"].status == "success" and jobs.candidate_job(e) == update
                          for e in self.ctx.index.reload().all()) if update else 0
             return approve_jd(self.config, job, questions, by=body.get("by") if isinstance(body.get("by"), str) else "",
-                              scored_candidates=scored, job_id=update)
+                              scored_candidates=scored, job_id=update,
+                              deadline=body["deadline"] if "deadline" in body else KEEP)
 
     # -------------------------------------------------------------- jobs
 
@@ -261,7 +296,7 @@ class DashboardAPI:
         j = rec.job
         return {"job_id": j["job_id"], "title": j["title"], "company_name": j["company_name"],
                 "location": j.get("location"), "status": rec.status, "created_at": rec.created_at,
-                "posted_by": rec.posted_by or j.get("approved_by"), "candidate_count": len(entries),
+                "posted_by": rec.posted_by or j.get("approved_by"), "candidate_count": len(entries), "deadline": rec.deadline,
                 "counts": counts, "must_have_skills": j.get("must_have_skills", []),
                 "last_activity": max((e.get("updated_at") or "" for e in entries), default=None) or None}
 
@@ -680,7 +715,7 @@ class Handler(BaseHTTPRequestHandler):
                     return self._json({"error": "not found"}, HTTPStatus.NOT_FOUND)
                 return self._login()
             if path in ("/api/approve/shortlist", "/api/approve/final", "/api/send-results", "/api/jd/draft",
-                        "/api/jd/approve", "/api/jobs", "/api/resumes") or _LINKEDIN_API.match(path) \
+                        "/api/jd/approve", "/api/jd/upload", "/api/jobs", "/api/resumes") or _LINKEDIN_API.match(path) \
                     or _CLEAR_FRAUD_API.match(path) or _CLARIFY_API.match(path) or _JOB_STATUS_API.match(path):
                 return self._dashboard_action(path)
             return self._json({"error": "not found"}, HTTPStatus.NOT_FOUND)
@@ -723,7 +758,7 @@ class Handler(BaseHTTPRequestHandler):
         if user is None:
             return self._json({"error": "Please sign in."}, HTTPStatus.UNAUTHORIZED)
         try:
-            body = self._body(MAX_UPLOAD_BODY if path == "/api/resumes" or _LINKEDIN_API.match(path) else MAX_BODY)
+            body = self._body(MAX_UPLOAD_BODY if path in ("/api/resumes", "/api/jd/upload") or _LINKEDIN_API.match(path) else MAX_BODY)
             if user:  # decisions are recorded under the signed-in account, whatever the page sends
                 body["by"] = user
             if m := _LINKEDIN_API.match(path):
@@ -740,6 +775,8 @@ class Handler(BaseHTTPRequestHandler):
                 return self._json(self.api.send_results(body))
             if path == "/api/jd/draft":
                 return self._json(self.api.write_jd(body))
+            if path == "/api/jd/upload":
+                return self._json(self.api.draft_from_document(body))
             if path in ("/api/jd/approve", "/api/jobs"):  # post a job (the JD writer's approved draft)
                 return self._json(self.api.approve_jd(body))
             return self._json(self.api.approve(path.rsplit("/", 1)[-1], body))

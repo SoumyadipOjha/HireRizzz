@@ -8,6 +8,7 @@ import CandidateDrawer from "../components/CandidateDrawer.jsx";
 import ResultsModal from "../components/ResultsModal.jsx";
 import JobDetailsModal from "../components/JobDetailsModal.jsx";
 import LinkedInModal from "../components/LinkedInModal.jsx";
+import Countdown from "../components/Countdown.jsx";
 
 export default function BoardPage({ jobId }) {
   const ov = usePoll(() => api.overview(jobId), 5000, [jobId]);
@@ -97,7 +98,7 @@ export default function BoardPage({ jobId }) {
     const n = list.length - y;
     const outbox = data?.email_mode === "outbox" ? " (outbox: written to files, not sent)" : "";
     const msg = gate === "shortlist"
-      ? `Accept the AI's suggestion for ${list.length} candidate(s) as ${by}?\n\n${y} shortlisted candidate(s) get their interview link by email.\n${n} rejected candidate(s) get a polite rejection email${outbox}.`
+      ? `Accept the AI's suggestion for ${list.length} candidate(s) as ${by}?\n\n${y} shortlisted candidate(s) get their screening link by email.\n${n} rejected candidate(s) get a polite rejection email${outbox}.`
       : `Accept the AI's suggestion for ${list.length} candidate(s) as ${by}?\n\n${y} to the final shortlist, ${n} rejected.\nNo emails are sent yet: you'll send them from Results.`;
     if (!window.confirm(msg)) return;
     try {
@@ -124,6 +125,7 @@ export default function BoardPage({ jobId }) {
           <h1>
             <span className="ellipsis">{jd?.title || (ov.loading ? "Loading…" : jobId)}</span>
             {info && <Pill value={info.status} dot />}
+            {info?.deadline && <Countdown deadline={info.deadline} />}
           </h1>
           {jd && (
             <div className="meta">
@@ -148,7 +150,7 @@ export default function BoardPage({ jobId }) {
       {ov.error && !data && ov.error.status !== 404 && (
         <div className="banner">{ov.error.status === 0 ? "Waking up the server… this can take up to a minute the first time." : ov.error.message}</div>
       )}
-      {data?.llm_error && <div className="banner"><b>Interviews can't start.</b>&nbsp;{data.llm_error}</div>}
+      {data?.llm_error && <div className="banner"><b>Screening calls can't start.</b>&nbsp;{data.llm_error}</div>}
       {data?.job_error && <div className="banner bad">Config error: {data.job_error}</div>}
       {data?.demo && <div className="banner info"><b>Demo data.</b>&nbsp;Synthetic sample candidates scored by a fake AI.</div>}
       {processing?.message && (processing.running || processing.job_id === jobId || !processing.job_id) && (
@@ -162,8 +164,8 @@ export default function BoardPage({ jobId }) {
         <div className="stats">
           <span className="stat"><b>{total}</b>applicants</span>
           <span className="stat attn"><b>{count("resume_review") + count("final_review")}</b>need review</span>
-          <span className="stat"><b>{count("interview")}</b>in interview</span>
-          <span className="stat"><b>{count("selected")}</b>selected</span>
+          <span className="stat"><b>{count("interview")}</b>in screening</span>
+          <span className="stat"><b>{count("selected")}</b>shortlisted</span>
           <span className={`stat${count("fraud") ? " bad" : ""}`}><b>{count("fraud")}</b>fraud stopped</span>
         </div>
       </div>
@@ -220,7 +222,7 @@ function Card({ c, on, onClick }) {
   if (hasFailure(c)) sub = "Something failed: open for details";
   else if (c.board_column === "applied") sub = st.stage1_extraction?.status === "success" ? "Scoring resume…" : "Reading resume…";
   else if (c.board_column === "interview")
-    sub = s3.status === "awaiting" ? "Invite sent · waiting for the call" : s3.status === "success" ? "Interviewed · scoring…" : "Shortlisted";
+    sub = s3.status === "awaiting" ? "Invite sent · waiting for the call" : s3.status === "success" ? "Screened · scoring…" : "Invited to screening";
   else if (c.board_column === "rejected" && s3.status === "skipped" && s3.output_path) sub = "Opted out during the call";
 
   return (
@@ -244,7 +246,7 @@ function Card({ c, on, onClick }) {
             <Pill tone={s2.decision === "shortlisted" ? "ok" : "bad"}>AI: {s2.decision === "shortlisted" ? "shortlist" : "reject"}</Pill>
           )}
           {c.board_column === "final_review" && s4.decision && (
-            <Pill tone={s4.decision === "shortlisted" ? "ok" : "bad"}>AI: {s4.decision === "shortlisted" ? "select" : "reject"}</Pill>
+            <Pill tone={s4.decision === "shortlisted" ? "ok" : "bad"}>AI: {s4.decision === "shortlisted" ? "shortlist" : "reject"}</Pill>
           )}
           {flag && c.board_column !== "fraud" && <Pill tone={flag.tone}>{flag.text}</Pill>}
         </div>

@@ -23,6 +23,9 @@ from .storage import write_json_atomic
 
 PROMPT_DIR = "jd_writer"
 MAX_BRIEF_CHARS = 6000
+MAX_DOCUMENT_CHARS = 15000   # an uploaded job description can be longer than a typed brief
+DOCUMENT_NOTE = ("The hiring manager uploaded an existing job description. Keep its facts (title, location, "
+                 "experience range, skills, responsibilities) and tidy the wording:\n\n")
 
 
 class JDError(ValueError):
@@ -55,17 +58,23 @@ def merge_questions(current: list[ScreeningQuestion], role: list[str]) -> list[S
     return logistics[:at] + new_role + logistics[at:]
 
 
-def draft_jd(config: AppConfig, llm: LLMClient, brief: str, *, company_name: str | None = None) -> dict:
+def draft_jd(config: AppConfig, llm: LLMClient, brief: str, *, company_name: str | None = None,
+             from_document: bool = False) -> dict:
+    """`from_document`: `brief` is the text of an uploaded job description, converted rather than written."""
     brief = (brief or "").strip()
+    limit = MAX_DOCUMENT_CHARS if from_document else MAX_BRIEF_CHARS
     if len(brief) < 20:
-        raise JDError("describe the role in at least a sentence or two (what the person will do, key skills)")
-    if len(brief) > MAX_BRIEF_CHARS:
-        raise JDError(f"the brief is too long ({len(brief)} characters, max {MAX_BRIEF_CHARS})")
+        raise JDError("the document has almost no text" if from_document else
+                      "describe the role in at least a sentence or two (what the person will do, key skills)")
+    if len(brief) > limit:
+        if not from_document:
+            raise JDError(f"the brief is too long ({len(brief)} characters, max {MAX_BRIEF_CHARS})")
+        brief = brief[:limit]
     company = (company_name or "").strip() or _existing_company(config) or "our company"
     system = load_prompt(PROMPT_DIR, "system.md")
     template = load_prompt(PROMPT_DIR, "draft_jd.md")
     out = llm.generate_json(system=system.text, prompt=template.render(
-        brief=brief, company_name=company, today=date.today().isoformat()), schema=JDDraftLLM)
+        brief=(DOCUMENT_NOTE + brief) if from_document else brief, company_name=company, today=date.today().isoformat()), schema=JDDraftLLM)
 
     job = {
         "job_id": f"{slug(out.title)}-{date.today():%Y%m%d}", "title": out.title.strip(), "company_name": company,
@@ -85,7 +94,7 @@ def draft_jd(config: AppConfig, llm: LLMClient, brief: str, *, company_name: str
     except ConfigError:
         current = []
     questions = merge_questions(current, [q.question for q in out.role_questions[:2]])
-    draft = {"created_at": utc_now(), "brief": brief, "llm": f"{llm.provider}/{llm.model}",
+    draft = {"created_at": utc_now(), "brief": brief, "from_document": from_document, "llm": f"{llm.provider}/{llm.model}",
              "job": job, "questions": [q.model_dump() for q in questions], "language_notes": out.language_notes}
     write_json_atomic(_draft_path(config), draft)
     return draft
@@ -99,8 +108,11 @@ def load_draft(config: AppConfig) -> dict | None:
         return None
 
 
+KEEP = object()  # approve_jd(deadline=KEEP): leave an existing job's deadline as it is
+
+
 def approve_jd(config: AppConfig, job: dict, questions: list[dict], *, by: str,
-               scored_candidates: int = 0, job_id: str | None = None) -> dict:
+               scored_candidates: int = 0, job_id: str | None = None, deadline=KEEP) -> dict:
     """Validate the (edited) draft and post it as a new job (or, with job_id, update that job).
     Candidates already scored against an updated job are not re-scored."""
     from .jobs import JobError
@@ -122,11 +134,11 @@ def approve_jd(config: AppConfig, job: dict, questions: list[dict], *, by: str,
     qlist = [q.model_dump() for q in qs.questions]
     try:
         if job_id:
-            rec = config.jobs.update(job_id, fields, qlist)
+            rec = config.jobs.update(job_id, fields, qlist, **({} if deadline is KEEP else {"deadline": deadline}))
         else:
             if not job.get("job_id"):
                 fields.pop("job_id")
-            rec = config.jobs.create(fields, qlist, posted_by=by)
+            rec = config.jobs.create(fields, qlist, posted_by=by, deadline=None if deadline is KEEP else deadline)
     except JobError as e:
         raise JDError(str(e)) from None
     _draft_path(config).unlink(missing_ok=True)

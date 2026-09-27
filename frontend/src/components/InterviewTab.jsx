@@ -81,13 +81,13 @@ export function InterviewTab({ d, ov }) {
 
 function Evaluation({ s4 }) {
   return (
-    <Section title="Interview evaluation" right={<span className="pill accent">AI suggestion</span>}>
+    <Section title="Screening evaluation" right={<span className="pill accent">AI suggestion</span>}>
       <div className="row" style={{ gap: 14 }}>
         <span className="big-score">{num(s4.final_score, 1)}</span>
         <div className="grow small">
           <div><Pill value={s4.suggested_decision} /> <span className="faint">final score · pass mark {s4.threshold}</span></div>
           <div className="muted" style={{ marginTop: 3 }}>
-            Resume {num(s4.resume_score, 0)} × {s4.resume_weight} + interview {num(s4.interview_score, 0)} × {s4.interview_weight}
+            Resume {num(s4.resume_score, 0)} × {s4.resume_weight} + screening {num(s4.interview_score, 0)} × {s4.interview_weight}
           </div>
         </div>
       </div>

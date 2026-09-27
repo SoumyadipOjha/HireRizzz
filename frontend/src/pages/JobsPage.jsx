@@ -4,6 +4,7 @@ import { COLUMNS, ago, fmtDate, navigate, usePoll } from "../lib.js";
 import { Pill, Spinner } from "../ui.jsx";
 import PostJobModal from "../components/PostJobModal.jsx";
 import Insights from "../components/Insights.jsx";
+import Countdown from "../components/Countdown.jsx";
 
 export default function JobsPage() {
   const { data, error, loading, reload } = usePoll(() => api.jobs(), 10000);
@@ -91,6 +92,7 @@ function JobRow({ job, i }) {
         <div className="row">
           <h3 className="ellipsis">{job.title}</h3>
           <Pill value={job.status} dot />
+          <Countdown deadline={job.deadline} compact />
         </div>
         <div className="meta ellipsis">
           {[job.company_name, job.location, `posted ${fmtDate(job.created_at)}`, job.posted_by && `by ${job.posted_by}`]
@@ -121,7 +123,7 @@ function JobRow({ job, i }) {
       <div className="job-stats">
         <div className="job-stat"><b>{total}</b><span>applicants</span></div>
         <div className={`job-stat${needsYou ? " attn" : ""}`}><b>{needsYou}</b><span>need review</span></div>
-        <div className="job-stat"><b>{c.selected || 0}</b><span>selected</span></div>
+        <div className="job-stat"><b>{c.selected || 0}</b><span>shortlisted</span></div>
         <div className="job-stat" style={{ minWidth: 70 }}><span>{job.last_activity ? `active ${ago(job.last_activity)}` : ""}</span></div>
       </div>
     </a>

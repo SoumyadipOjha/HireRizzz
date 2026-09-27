@@ -3,6 +3,7 @@ import { fmtDate } from "../lib.js";
 import { KV, Modal } from "../ui.jsx";
 import PostJobModal from "./PostJobModal.jsx";
 import LinkedInModal from "./LinkedInModal.jsx";
+import Countdown from "./Countdown.jsx";
 
 export default function JobDetailsModal({ info, onClose, onChanged }) {
   const [editing, setEditing] = useState(false);
@@ -12,7 +13,7 @@ export default function JobDetailsModal({ info, onClose, onChanged }) {
   if (editing) {
     return (
       <PostJobModal
-        edit={{ jobId: info.job_id, job: j, questions: info.questions, scored: info.candidate_count }}
+        edit={{ jobId: info.job_id, job: j, questions: info.questions, scored: info.candidate_count, deadline: info.deadline }}
         onClose={() => setEditing(false)}
         onPosted={() => {
           setEditing(false);
@@ -37,6 +38,7 @@ export default function JobDetailsModal({ info, onClose, onChanged }) {
         ["Experience", exp],
         ["Must have", (j.must_have_skills || []).join(", ")],
         ["Nice to have", (j.nice_to_have_skills || []).join(", ")],
+        ["Deadline", <Countdown key="cd" deadline={info.deadline} />],
         ["Job posting", j.apply_url && <a href={j.apply_url} target="_blank" rel="noreferrer">{j.apply_url}</a>],
         ["Posted", `${fmtDate(info.created_at)}${info.posted_by ? ` by ${info.posted_by}` : ""}`],
         ["Job ID", <span key="id" className="mono">{info.job_id}</span>],
