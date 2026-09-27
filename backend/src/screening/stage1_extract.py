@@ -91,6 +91,12 @@ def run_stage1(ctx: RunContext, llm: LLMClient, *, force: bool = False,
                     log.info("%s: candidate_id=%s credibility flags: %d red, %d amber", STAGE, cid, cr.red, cr.amber)
             except Exception as ce:
                 log.warning("%s: candidate_id=%s credibility checks skipped: %s", STAGE, cid, ce)
+            try:  # same email screened in the last N days: cooling period (cooldown.py)
+                from .cooldown import check_cooldown
+
+                check_cooldown(ctx, cid)
+            except Exception as ce:
+                log.warning("%s: candidate_id=%s cooling-period check skipped: %s", STAGE, cid, ce)
             summary.succeeded.append(cid)
         except Exception as e:  # log-and-skip: one bad resume never stops the batch
             ctx.fail(STAGE, entry, e)

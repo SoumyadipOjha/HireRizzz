@@ -19,7 +19,7 @@ SCHEMA_VERSION = "1.0"
 StageName = Literal["stage1_extraction", "stage2_shortlisting", "stage3_calling", "stage4_evaluation"]
 STAGES: tuple[StageName, ...] = ("stage1_extraction", "stage2_shortlisting", "stage3_calling", "stage4_evaluation")
 StageStatus = Literal["pending", "success", "failed", "skipped", "awaiting"]
-OverallStatus = Literal["active", "rejected", "failed", "fraud", "awaiting", "completed", "evaluated",
+OverallStatus = Literal["active", "rejected", "failed", "fraud", "cooling", "awaiting", "completed", "evaluated",
                         "selected", "not_selected"]
 Decision = Literal["shortlisted", "rejected"]
 COMPETENCIES = ("role_knowledge", "problem_solving", "communication", "motivation")
@@ -91,6 +91,7 @@ class CandidateEntry(_Model):
     credibility: "CredibilitySummary | None" = None  # resume checks / LinkedIn cross-check (credibility.py)
     fraud_blocked: bool = False            # stopped by the credibility checks (no further stages)
     fraud_cleared: "FraudClearance | None" = None   # a recruiter looked and let the candidate continue
+    cooling: "CoolingPeriod | None" = None           # same email screened recently (cooldown.py)
 
     @model_validator(mode="after")
     def _all_stages(self) -> "CandidateEntry":
@@ -381,6 +382,16 @@ class FraudClearance(_Model):
     at: str
     note: str | None = None
     red_at_clearance: int = 0             # how many issues the recruiter saw when clearing
+
+
+class CoolingPeriod(_Model):
+    """This email address finished a screening call recently: no new screening until `until`."""
+    since: str                            # when that screening call finished
+    until: str
+    previous_candidate_id: str
+    previous_job_id: str | None = None
+    previous_job_title: str | None = None
+    cleared: "FraudClearance | None" = None   # a recruiter let this application through anyway
 
 
 class CredibilityRecord(_Model):

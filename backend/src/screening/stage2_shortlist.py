@@ -116,6 +116,16 @@ def run_stage2(ctx: RunContext, llm: LLMClient, *, force: bool = False,
             summary.skipped.append(cid)
             continue
         upstream = entry.stages[UPSTREAM].status
+        if upstream == "success":
+            from .cooldown import check_cooldown, cooling_active, cooling_note
+
+            entry = check_cooldown(ctx, cid)
+            if cooling_active(entry):
+                note = cooling_note(entry)
+                if entry.stages[STAGE].note != note:
+                    ctx.skip(STAGE, entry, note)
+                summary.skipped.append(cid)
+                continue
         if upstream != "success":
             ctx.skip(STAGE, entry, f"{UPSTREAM} is '{upstream}', not 'success'")
             summary.skipped.append(cid)

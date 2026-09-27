@@ -113,7 +113,13 @@ function OverviewTab({ d, e, ov, onChanged, goTo }) {
           <div><button className="btn sm" onClick={() => goTo("credibility")}>Review the issues</button></div>
         </div>
       )}
-      {waitingShortlist(e) && <ShortlistDecision e={e} s2={s2} ov={ov} onChanged={onChanged} />}
+      {e.overall_status === "cooling" && <CoolingBox e={e} onChanged={onChanged} />}
+      {e.cooling?.cleared && e.overall_status !== "cooling" && (
+        <div className="box soft small">
+          Cooling period lifted by <b>{e.cooling.cleared.by}</b> on {fmtTime(e.cooling.cleared.at)}: “{e.cooling.cleared.note}”.
+        </div>
+      )}
+      {waitingShortlist(e) && e.overall_status !== "cooling" && <ShortlistDecision e={e} s2={s2} ov={ov} onChanged={onChanged} />}
       {waitingFinal(e) && <FinalDecision e={e} s4={s4} ov={ov} onChanged={onChanged} />}
       {final && <DecidedFinal e={e} s4={s4} onChanged={onChanged} />}
 
@@ -428,5 +434,50 @@ function ScoreBreakdown({ s2, s4 }) {
         </div>
       )}
     </Section>
+  );
+}
+
+
+// ------------------------------------------------------------------ cooling period
+
+function CoolingBox({ e, onChanged }) {
+  const [note, setNote] = useState("");
+  const [busy, setBusy] = useState(false);
+  const c = e.cooling;
+  const day = (iso) => new Date(iso).toLocaleDateString(undefined, { day: "numeric", month: "short", year: "numeric" });
+  async function allow() {
+    const by = requireApprover();
+    if (!note.trim()) {
+      toast("Say why this candidate may be screened again.", "error");
+      return;
+    }
+    if (!window.confirm(`Let ${nameOf(e)} be screened again before ${day(c.until)} as ${by}? Your name and reason are recorded.`)) return;
+    setBusy(true);
+    try {
+      await api.clearCooling(e.candidate_id, by, note.trim());
+      toast("Cooling period lifted. Their resume is being scored now.", "ok");
+      onChanged();
+    } catch (err) {
+      toast(err.message, "error");
+    } finally {
+      setBusy(false);
+    }
+  }
+  return (
+    <div className="box warn stack">
+      <div>
+        <b>Cooling period until {day(c.until)}</b>
+        <div className="small" style={{ marginTop: 3 }}>
+          This email address finished a screening call for <b>{c.previous_job_title}</b> on {day(c.since)}.
+          The same person can be screened again 30 days after a screening, so this application is on hold:
+          no scoring, invite or screening until then.
+        </div>
+      </div>
+      <div className="row">
+        <input className="input" maxLength={300} placeholder="Reason, e.g. applying for a very different role" value={note}
+          onChange={(ev) => setNote(ev.target.value)} />
+        <button className="btn sm" disabled={busy} onClick={allow}>{busy ? <Spinner /> : null} Allow anyway</button>
+      </div>
+    </div>
   );
 }

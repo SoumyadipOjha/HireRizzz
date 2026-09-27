@@ -87,6 +87,14 @@ def run_stage3(ctx: RunContext, *, force: bool = False, only: set[str] | None = 
             summary.skipped.append(cid)
             continue
         up = entry.stages[UPSTREAM]
+        from .cooldown import check_cooldown, cooling_active, cooling_note
+
+        entry = check_cooldown(ctx, cid)
+        if cooling_active(entry):
+            if st.note != cooling_note(entry):
+                ctx.skip(STAGE, entry, cooling_note(entry))
+            summary.skipped.append(cid)
+            continue
         if up.status != "success":
             ctx.skip(STAGE, entry, f"{UPSTREAM} is '{up.status}', not 'success'")
             summary.skipped.append(cid)

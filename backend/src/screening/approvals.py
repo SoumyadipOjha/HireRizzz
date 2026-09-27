@@ -53,7 +53,7 @@ def _by(by: str | None) -> str:
 
 def awaiting_shortlist_review(entry: CandidateEntry) -> bool:
     return (entry.stages["stage2_shortlisting"].status == "success" and "shortlist" not in entry.reviews
-            and not entry.fraud_blocked)
+            and not entry.fraud_blocked and entry.overall_status != "cooling")
 
 
 def awaiting_final_review(entry: CandidateEntry) -> bool:
@@ -77,6 +77,8 @@ def board_column(entry: CandidateEntry) -> str:
     st = entry.stages
     if entry.fraud_blocked:
         return "fraud"
+    if entry.overall_status == "cooling":
+        return "rejected"  # held: the card says "Cooling period until ..."
     final = entry.reviews.get("final")
     if final is not None:
         return "selected" if final.decision == "shortlisted" else "rejected"
@@ -111,6 +113,11 @@ def approve_shortlist(ctx: RunContext, decisions: dict[str, str], *, by: str, no
         if entry.fraud_blocked:
             raise ApprovalError(f"{entry.display_name or cid}: fraud detected. Review the credibility flags and "
                                 "clear them first if they're innocent")
+        from .cooldown import cooling_active
+
+        if cooling_active(entry):
+            raise ApprovalError(f"{entry.display_name or cid}: in a cooling period after a recent screening call. "
+                                "Use 'Allow anyway' first if they should be screened again")
         s2 = entry.stages["stage2_shortlisting"]
         if s2.status != "success":
             raise ApprovalError(f"{entry.display_name or cid}: resume screening hasn't finished (status {s2.status})")

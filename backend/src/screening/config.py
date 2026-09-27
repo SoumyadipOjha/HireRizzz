@@ -150,6 +150,8 @@ class Stage3Config(_Strict):
     interrupted_grace_seconds: float = Field(default=45, ge=0)
     max_interrupted_emails: int = Field(default=3, ge=0)
     idle_minutes: float = Field(default=10, gt=0)  # a call with no activity this long is closed as interrupted
+    # After a finished screening call, the same email is not screened again (any job) for this many days; 0 = off.
+    cooldown_days: int = Field(default=30, ge=0)
 
     @field_validator("public_base_url")
     @classmethod

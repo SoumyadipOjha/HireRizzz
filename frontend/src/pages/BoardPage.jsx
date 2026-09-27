@@ -224,6 +224,8 @@ function Card({ c, on, onClick }) {
   else if (c.board_column === "interview")
     sub = s3.status === "awaiting" ? "Invite sent · waiting for the call" : s3.status === "success" ? "Screened · scoring…" : "Invited to screening";
   else if (c.board_column === "rejected" && s3.status === "skipped" && s3.output_path) sub = "Opted out during the call";
+  else if (c.overall_status === "cooling")
+    sub = `Cooling period until ${new Date(c.cooling?.until).toLocaleDateString(undefined, { day: "numeric", month: "short" })}`;
 
   return (
     <button className={`cand${on ? " on" : ""}`} onClick={onClick}>

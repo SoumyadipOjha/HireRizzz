@@ -145,6 +145,14 @@ class CandidateIndex:
         self.save(candidate_id)
         return entry
 
+    def set_cooling(self, candidate_id: str, period) -> CandidateEntry:
+        entry = self.get(candidate_id)
+        entry.cooling = period
+        entry.updated_at = utc_now()
+        _recompute(entry)
+        self.save(candidate_id)
+        return entry
+
     def clear_fraud(self, candidate_id: str, clearance: FraudClearance) -> CandidateEntry:
         entry = self.get(candidate_id)
         entry.fraud_cleared = clearance
@@ -160,6 +168,12 @@ class CandidateIndex:
         entry.updated_at = utc_now()
         self.save(candidate_id)
         return entry
+
+
+def _cooling(entry: CandidateEntry) -> bool:
+    from .cooldown import cooling_active
+
+    return cooling_active(entry) and entry.stages["stage3_calling"].status != "success"
 
 
 def resume_decision(entry: CandidateEntry) -> str | None:
@@ -180,6 +194,8 @@ def _recompute(entry: CandidateEntry) -> None:
         entry.overall_status = "failed"
     elif entry.fraud_blocked:
         entry.overall_status = "fraud"
+    elif _cooling(entry):
+        entry.overall_status = "cooling"
     elif final is not None:
         entry.overall_status = "selected" if final.decision == "shortlisted" else "not_selected"
     elif resume_decision(entry) == "rejected":

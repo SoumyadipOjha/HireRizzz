@@ -76,6 +76,7 @@ MAX_RESUME_BYTES = 10 * 1024 * 1024
 _UUID = re.compile(r"^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$")
 _LINKEDIN_API = re.compile(r"^/api/candidate/([0-9a-f-]{36})/linkedin$")
 _CLEAR_FRAUD_API = re.compile(r"^/api/candidate/([0-9a-f-]{36})/clear-fraud$")
+_COOLING_API = re.compile(r"^/api/candidate/([0-9a-f-]{36})/clear-cooling$")
 _CLARIFY_API = re.compile(r"^/api/candidate/([0-9a-f-]{36})/request-clarification$")
 _JOB_API = re.compile(r"^/api/jobs/([A-Za-z0-9_-]{1,80})$")
 _JOB_STATUS_API = re.compile(r"^/api/jobs/([A-Za-z0-9_-]{1,80})/status$")
@@ -475,6 +476,19 @@ class DashboardAPI:
             threading.Thread(target=self._continue_after_clearance, args=(cid,), daemon=True).start()
         return {"cleared": True, "overall_status": entry.overall_status}
 
+    def clear_cooling(self, cid: str, body: dict) -> dict:
+        """A recruiter lets this application be screened despite the cooling period (resume scored next)."""
+        from ..cooldown import clear_cooling
+
+        by = body.get("by") if isinstance(body.get("by"), str) else ""
+        note = body.get("note") if isinstance(body.get("note"), str) else None
+        with self.ctx.lock:
+            entry = clear_cooling(self.ctx, self.ctx.index.reload().get(cid).candidate_id, by=by, note=note)
+        if entry.stages["stage2_shortlisting"].status != "success" and not self.processing["running"]:
+            self.processing.update(running=True, message=f"Scoring {entry.display_name or 'the resume'}...")
+            threading.Thread(target=self._continue_after_clearance, args=(cid,), daemon=True).start()
+        return {"cleared": True, "overall_status": entry.overall_status}
+
     def _continue_after_clearance(self, cid: str) -> None:
         from ..llm import make_client
         from ..stage2_shortlist import run_stage2
@@ -716,7 +730,8 @@ class Handler(BaseHTTPRequestHandler):
                 return self._login()
             if path in ("/api/approve/shortlist", "/api/approve/final", "/api/send-results", "/api/jd/draft",
                         "/api/jd/approve", "/api/jd/upload", "/api/jobs", "/api/resumes") or _LINKEDIN_API.match(path) \
-                    or _CLEAR_FRAUD_API.match(path) or _CLARIFY_API.match(path) or _JOB_STATUS_API.match(path):
+                    or _CLEAR_FRAUD_API.match(path) or _CLARIFY_API.match(path) or _JOB_STATUS_API.match(path) \
+                    or _COOLING_API.match(path):
                 return self._dashboard_action(path)
             return self._json({"error": "not found"}, HTTPStatus.NOT_FOUND)
         except Exception as e:
@@ -767,6 +782,8 @@ class Handler(BaseHTTPRequestHandler):
                 return self._json(self.api.clear_fraud(m.group(1), body))
             if m := _CLARIFY_API.match(path):
                 return self._json(self.api.request_clarification(m.group(1)))
+            if m := _COOLING_API.match(path):
+                return self._json(self.api.clear_cooling(m.group(1), body))
             if m := _JOB_STATUS_API.match(path):
                 return self._json(self.api.set_job_status(m.group(1), body))
             if path == "/api/resumes":

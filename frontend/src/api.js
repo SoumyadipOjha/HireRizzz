@@ -83,6 +83,7 @@ export const api = {
   sendResults: (jobId) => request("/api/send-results", { method: "POST", body: { job_id: jobId } }),
   uploadResumes: (jobId, files) => request("/api/resumes", { method: "POST", body: { job_id: jobId, files } }),
   uploadLinkedin: (cid, name, data) => request(`/api/candidate/${cid}/linkedin`, { method: "POST", body: { name, data } }),
+  clearCooling: (cid, by, note) => request(`/api/candidate/${cid}/clear-cooling`, { method: "POST", body: { by, note } }),
   clearFraud: (cid, by, note) => request(`/api/candidate/${cid}/clear-fraud`, { method: "POST", body: { by, note } }),
   requestClarification: (cid) => request(`/api/candidate/${cid}/request-clarification`, { method: "POST", body: {} }),
   jdDraft: () => request("/api/jd/draft"),
