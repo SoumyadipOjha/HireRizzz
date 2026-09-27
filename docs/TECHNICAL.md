@@ -41,6 +41,7 @@ Backend paths are under `backend/src/screening/`; frontend paths are under `fron
 12. [Security](#12-security)
 13. [Deployment and operations](#13-deployment-and-operations)
 14. [Known limits](#14-known-limits)
+15. [Responsible AI](#15-responsible-ai)
 
 ---
 
@@ -659,3 +660,18 @@ Secrets live only in `backend/.env` (git-ignored) and in the Render / Vercel set
   employment before an offer.
 - **Scale:** the index is loaded into memory and background work uses threads. A job queue and indexed
   queries are the path to thousands of applicants.
+
+---
+
+## 15. Responsible AI
+
+How HireRizz meets each Responsible AI theme, with the gap still open for each.
+
+| # | Theme | How HireRizz meets it | Open gap → next step |
+|---|---|---|---|
+| 1 | **Fairness** | Blind resume scoring (no name, contact details or location). The same fixed weighted criteria for every candidate. Pass marks applied by code, not the AI. The JD writer removes biased wording. Interview scores count only verbatim quotes. Fraud flags never reject anyone automatically. | Indirect signals (college, career gaps) are still visible, and there's no bias audit → compare pass rates across groups at each gate |
+| 2 | **Reliability and Safety** | Schema-validated AI output; truncated or invalid output is rejected. Automatic fallback across 4 models, skipping ones out of quota. One failure never stops the batch. The call is guard-railed (fixed questions, at most 1 follow-up, 40-turn cap, safe exit on AI errors). Every turn is saved; interrupted calls are emailed a resume link; idle calls close after 10 min; a backup phone line covers outages. Settings are checked at start-up. 128 automated tests. | No accuracy measured on real candidates → a labelled benchmark re-run on every change |
+| 3 | **Privacy and Security** | Signed-token login on every request, with slowed responses to wrong passwords. Unguessable, expiring, single-use candidate links. No referrer leaks; microphone limited to the screening page. Identity fields removed before scoring. Secrets only in the environment, masked in logs. Cross-site and upload protection. Data stays in the client's own MongoDB. | No consent screen, retention period or data deletion; no identity check on the call → consent and retention for DPDP / GDPR, and the emailed one-time code switched back on |
+| 4 | **Inclusiveness** | Voice *or* text screening. 24/7 on any device, no app or account, QR link. Indian English (en-IN) speech. A backup phone line and a resume-your-call email. Consent, "later" and "stop" handled. Every candidate gets a result email. Reduced-motion respected. | Voice needs Chrome, Edge or Safari; English only → more languages and screening by phone call (future scope) |
+| 5 | **Transparency** | The call opens by disclosing it's an AI and that it's recorded. Score breakdown (score × weight = points) for the resume, screening and final score. Evidence and exact quotes shown, including dropped ones. Specific, sourced fraud flags. AI suggestions and "needs review" reasons clearly labelled. The model used is recorded. Rules documented here and in the flow diagram. | Candidates don't see their own score breakdown → an "explain my result" view |
+| 6 | **Accountability** | Two human gates (recruiter, hiring manager); the AI only suggests. Every decision records who, when, and the AI's suggestion, so overrides are visible. The server sets the signed-in name, so it can't be faked. Clearing fraud or lifting a cooling period needs a written reason. Stage outputs and failures are logged, and each module has a named owner. | One shared admin account → individual accounts with roles |
