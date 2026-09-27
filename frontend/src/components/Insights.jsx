@@ -35,7 +35,7 @@ export default function Insights({ data, onPost }) {
     { k: "Candidates", v: t.candidates, icon: "users", tone: "violet" },
     { k: "Open jobs", v: t.open_jobs, icon: "brief", tone: "blue", sub: `${t.jobs} posted` },
     { k: "Need your review", v: t.need_review, icon: "bell", tone: "amber", pulse: t.need_review > 0 },
-    { k: "AI screenings", v: t.interviews, icon: "mic", tone: "pink" },
+    { k: "Screenings", v: t.interviews, icon: "mic", tone: "pink" },
     { k: "Shortlisted", v: t.selected, icon: "star", tone: "green" },
     { k: "Fraud caught", v: t.fraud, icon: "shield", tone: "red" },
   ];
@@ -79,7 +79,7 @@ export default function Insights({ data, onPost }) {
 
       <div className="chart-grid">
         <div className="card chart-card fade-up" style={{ "--i": 2 }}>
-          <div className="chart-head"><h3>Outcomes</h3><span className="faint small">hover a slice</span></div>
+          <div className="chart-head"><h3>Outcomes</h3></div>
           <div className="chart-body"><Donut segments={outcomes} size={170} thickness={22} centerLabel="candidates" onSelect={openBoard} /></div>
         </div>
 
@@ -135,7 +135,7 @@ function Facts({ data }) {
   const f = list[i % list.length];
   return (
     <div className="card chart-card facts fade-up" style={{ "--i": 7 }} onMouseEnter={() => setPaused(true)} onMouseLeave={() => setPaused(false)}>
-      <div className="chart-head"><h3>Did you know?</h3><span className="faint small">{(i % list.length) + 1}/{list.length}</span></div>
+      <div className="chart-head"><h3>Highlights</h3><span className="faint small">{(i % list.length) + 1}/{list.length}</span></div>
       <div className="fact" key={i}>
         <span className="fact-emoji">{f.emoji}</span>
         <b className="fact-big grad-text">{f.big}</b>

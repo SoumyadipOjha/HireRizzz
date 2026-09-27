@@ -55,7 +55,7 @@ export function credibilityFlag(e) {
   if (e.fraud_blocked) return { tone: "bad", text: "Fraud detected" };
   if (e.fraud_cleared) return { tone: "muted", text: `Flags cleared by ${e.fraud_cleared.by}` };
   if (e.credibility?.red) return { tone: "bad", text: `${e.credibility.red} credibility issue${e.credibility.red > 1 ? "s" : ""}` };
-  if (e.credibility?.amber) return { tone: "warn", text: `${e.credibility.amber} to check` };
+  if (e.credibility?.amber) return { tone: "warn", text: `${e.credibility.amber} flag${e.credibility.amber === 1 ? "" : "s"}` };
   return null;
 }
 

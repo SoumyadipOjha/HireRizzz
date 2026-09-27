@@ -3,7 +3,7 @@ import { api, fileToBase64 } from "../api.js";
 import { fmtTime, label, nameOf, requireApprover, toast } from "../lib.js";
 import { EmailLine, Section, Spinner } from "../ui.jsx";
 
-const LEVEL = { red: "Issue", amber: "Check", green: "Confirmed" };
+const LEVEL = { red: "Issue", amber: "Flag", green: "Confirmed" };
 
 export function CredibilityTab({ d, e, onChanged }) {
   const cred = d.credibility;
@@ -26,7 +26,7 @@ export function CredibilityTab({ d, e, onChanged }) {
         title="Resume checks"
         right={cred && (
           <span className="small faint" style={{ textTransform: "none", letterSpacing: 0, fontWeight: 400 }}>
-            {s.red || 0} issue(s) · {s.amber || 0} to check · {s.green || 0} confirmed{s.linkedin ? " · LinkedIn compared" : ""}
+            {s.red || 0} issue(s) · {s.amber || 0} flag(s) · {s.green || 0} confirmed{s.linkedin ? " · LinkedIn compared" : ""}
           </span>
         )}
       >
@@ -70,7 +70,7 @@ function LinkedIn({ e, summary, file, onChanged }) {
     try {
       const r = await api.uploadLinkedin(e.candidate_id, f.name, await fileToBase64(f));
       const sm = r.summary || {};
-      toast(`LinkedIn compared: ${sm.red} issue(s), ${sm.amber} to check, ${sm.green} confirmed.`, sm.red > 0 ? "error" : "ok");
+      toast(`LinkedIn compared: ${sm.red} issue(s), ${sm.amber} flag(s), ${sm.green} confirmed.`, sm.red > 0 ? "error" : "ok");
       onChanged();
     } catch (err) {
       toast(`LinkedIn check failed: ${err.message}`, "error");
