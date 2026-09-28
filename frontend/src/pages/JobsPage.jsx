@@ -5,6 +5,7 @@ import { Pill, Spinner } from "../ui.jsx";
 import PostJobModal from "../components/PostJobModal.jsx";
 import Insights from "../components/Insights.jsx";
 import Countdown from "../components/Countdown.jsx";
+import CandidateSearch from "../components/CandidateSearch.jsx";
 
 export default function JobsPage() {
   const { data, error, loading, reload } = usePoll(() => api.jobs(), 10000);
@@ -24,7 +25,10 @@ export default function JobsPage() {
           <h2>Jobs</h2>
           <p className="muted">Every posted role and where its candidates are. Open one to see its board.</p>
         </div>
-        {!ins.data && <button className="btn primary shine" onClick={() => setPosting(true)}>+ Post a job</button>}
+        <div className="row" style={{ gap: 10 }}>
+          <CandidateSearch jobs={jobs} />
+          {!ins.data && <button className="btn primary shine" onClick={() => setPosting(true)}>+ Post a job</button>}
+        </div>
       </div>
 
       {error && !data && (
