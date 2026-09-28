@@ -98,7 +98,11 @@ export default function CandidateSearch({ jobs }) {
                     {titles[c.job_id] || c.job_id}{c.updated_at ? ` · ${ago(c.updated_at)}` : ""}
                   </span>
                 </span>
-                <Pill tone={TONE[c.board_column] || ""}>{COLUMN[c.board_column]?.label || c.board_column}</Pill>
+                {c.overall_status === "cooling" ? (
+                  <Pill tone="warn">Cooling</Pill>
+                ) : (
+                  <Pill tone={TONE[c.board_column] || ""}>{COLUMN[c.board_column]?.label || c.board_column}</Pill>
+                )}
               </button>
             ))
           )}
