@@ -15,6 +15,32 @@ emails everyone their result. **People make every decision that matters.**
 
 ---
 
+## Demo videos
+
+<table>
+<tr>
+<td align="center" width="33%">
+<a href="docs/media/HireRizz_Demo_2min.mp4"><img src="docs/media/HireRizz_Demo_2min.jpg" alt="HireRizz in 2 minutes" width="100%"></a><br>
+<b>HireRizz in 2 minutes</b><br>
+Every feature, fast: job post, resume scoring, fraud check, invite email, voice screening, results.
+</td>
+<td align="center" width="33%">
+<a href="docs/media/HireRizz_Demo_Full.mp4"><img src="docs/media/HireRizz_Demo_Full.jpg" alt="Full walkthrough" width="100%"></a><br>
+<b>Full walkthrough (5 min)</b><br>
+From sign-in to the final shortlist, with a voice-over explaining each step.
+</td>
+<td align="center" width="33%">
+<a href="docs/media/HireRizz_Fraud_Firewall_Deep_Dive.mp4"><img src="docs/media/HireRizz_Fraud_Firewall_Deep_Dive.jpg" alt="Fraud Firewall deep dive" width="100%"></a><br>
+<b>Fraud Firewall deep dive (14 min)</b><br>
+Each fraud rule, the company check, the LinkedIn cross-check and the cooling period: the code, then the app catching it.
+</td>
+</tr>
+</table>
+
+Click a thumbnail to play. All candidates in the videos are fictional demo data.
+
+---
+
 ## Contents
 
 1. [What it does](#what-it-does)
