@@ -78,11 +78,12 @@ _LINKEDIN_API = re.compile(r"^/api/candidate/([0-9a-f-]{36})/linkedin$")
 _CLEAR_FRAUD_API = re.compile(r"^/api/candidate/([0-9a-f-]{36})/clear-fraud$")
 _COOLING_API = re.compile(r"^/api/candidate/([0-9a-f-]{36})/clear-cooling$")
 _CLARIFY_API = re.compile(r"^/api/candidate/([0-9a-f-]{36})/request-clarification$")
+_RESUME_FILE_API = re.compile(r"^/api/candidate/([0-9a-f-]{36})/resume$")
 _JOB_API = re.compile(r"^/api/jobs/([A-Za-z0-9_-]{1,80})$")
 _JOB_STATUS_API = re.compile(r"^/api/jobs/([A-Za-z0-9_-]{1,80})/status$")
 _INTERVIEW_API = re.compile(r"^/api/interview/([A-Za-z0-9_-]+)/(info|code|verify|start|turn|end)$")
 _CSP = ("default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; "
-        "connect-src 'self'; img-src 'self' data:; frame-ancestors 'none'; base-uri 'none'; form-action 'none'")
+        "connect-src 'self'; img-src 'self' data:; frame-src 'self' blob:; object-src 'self' blob:; frame-ancestors 'none'; base-uri 'none'; form-action 'none'")
 
 
 class DashboardAPI:
@@ -454,6 +455,14 @@ class DashboardAPI:
                 self.ctx.logger.warning("credibility: candidate_id=%s checks failed: %s", cid, e)
         return rec.model_dump(mode="json") if rec else None
 
+    def resume_file(self, cid: str) -> dict | None:
+        """The resume the candidate applied with (disk, or the copy in the store)."""
+        from ..resume_files import load
+
+        with self.ctx.lock:
+            entry = self.ctx.index.reload().get(cid)  # KeyError -> 404
+        return load(self.config.store, entry)
+
     def request_clarification(self, cid: str) -> dict:
         """Email the candidate the mismatches and ask for an updated resume (manual send / resend)."""
         from ..credibility import request_clarification
@@ -692,6 +701,10 @@ class Handler(BaseHTTPRequestHandler):
                 return self._json(self.api.insights())
             if m := _JOB_API.match(path):
                 return self._json(self.api.job(m.group(1)))
+            if m := _RESUME_FILE_API.match(path):
+                data = self.api.resume_file(m.group(1))
+                return self._json(data) if data else self._json(
+                    {"error": "the original resume file isn't available on this server"}, HTTPStatus.NOT_FOUND)
             if path.startswith("/api/candidate/"):
                 cid = path.rsplit("/", 1)[-1]
                 if not _UUID.match(cid):

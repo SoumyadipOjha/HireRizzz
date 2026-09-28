@@ -16,6 +16,7 @@ from test_pdf import make_pdf
 
 from screening.credibility import linkedin_checks, load_record, resume_checks, same_company
 from screening.dashboard.server import DashboardAPI, Handler
+from screening.paths import resolve_stored
 from screening.schemas import ResumeExtractionLLM
 from screening.stage0_ingest import ingest
 from screening.stage1_extract import run_stage1
@@ -146,6 +147,30 @@ def test_checks_run_after_stage1_and_linkedin_upload_over_http(ctx, tmp_path):
         make_pdf(empty, [])
         status, r = post({"name": "e.pdf", "data": base64.b64encode(empty.read_bytes()).decode()})
         assert status == 400 and "Save to PDF" in r["error"]
+    finally:
+        httpd.shutdown()
+        httpd.server_close()
+
+
+def test_resume_file_is_served_from_disk_or_the_stored_copy(ctx):
+    ingest(ctx)
+    run_stage1(ctx, FakeLLM())
+    aarav = next(e for e in ctx.index.all() if e.display_name == "Aarav Sharma")
+    api = DashboardAPI(ctx.config, ctx=ctx, llm_factory=lambda: FakeLLM())
+    httpd = ThreadingHTTPServer(("127.0.0.1", 0), partial(Handler, api=api))
+    threading.Thread(target=httpd.serve_forever, daemon=True).start()
+    url = f"http://127.0.0.1:{httpd.server_address[1]}/api/candidate/{aarav.candidate_id}/resume"
+    try:
+        with urllib.request.urlopen(url) as r:
+            f = json.loads(r.read())
+        original = resolve_stored(aarav.source_file)
+        assert f["name"] == original.name and base64.b64decode(f["data"]) == original.read_bytes()
+        assert "Aarav Sharma" in f["text"]
+
+        original.unlink()  # e.g. a host whose disk was wiped: the copy from Stage 1 is served
+        with urllib.request.urlopen(url) as r:
+            f = json.loads(r.read())
+        assert f["data"] and "Aarav Sharma" in f["text"]
     finally:
         httpd.shutdown()
         httpd.server_close()

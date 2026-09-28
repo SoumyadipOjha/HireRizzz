@@ -59,6 +59,13 @@ def run_stage1(ctx: RunContext, llm: LLMClient, *, force: bool = False,
                             STAGE, cid, len(text), th.max_resume_chars)
                 text = text[: th.max_resume_chars]
 
+            try:  # a copy of the original file, so the dashboard can always show it (resume_files.py)
+                from .resume_files import save_copy
+
+                save_copy(ctx.config.store, cid, path, text)
+            except Exception as fe:
+                log.warning("%s: candidate_id=%s resume copy not stored: %s", STAGE, cid, fe)
+
             prompt = template.render(resume_text=text, today=date.today().isoformat())
             extraction = llm.generate_json(system=system.text, prompt=prompt, schema=ResumeExtractionLLM)
 

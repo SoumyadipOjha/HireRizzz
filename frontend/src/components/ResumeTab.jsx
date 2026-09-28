@@ -1,14 +1,18 @@
+import { useEffect, useState } from "react";
+import { api } from "../api.js";
 import { fmtTime, num } from "../lib.js";
-import { KV, Pill, Section } from "../ui.jsx";
+import { KV, Pill, Section, Spinner } from "../ui.jsx";
 
 export function ResumeTab({ d }) {
   const s1 = d.records?.stage1_extraction;
   const s2 = d.records?.stage2_shortlisting;
-  if (!s1 && !s2) return <div className="empty">The resume hasn't been read yet.</div>;
+  const cid = d.entry?.candidate_id;
+  if (!s1 && !s2) return <ResumeFile cid={cid} />;
   const x = s1?.extraction || {};
 
   return (
     <>
+      <ResumeFile cid={cid} />
       {s2 && (
         <Section title="Resume score" right={<span className="faint small">by {s2.llm?.model}</span>}>
           <div className="row" style={{ gap: 14 }}>
@@ -89,5 +93,68 @@ export function ResumeTab({ d }) {
         </Section>
       )}
     </>
+  );
+}
+
+function toBlob(b64, type) {
+  const bin = atob(b64);
+  const bytes = new Uint8Array(bin.length);
+  for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
+  return new Blob([bytes], { type });
+}
+
+function ResumeFile({ cid }) {
+  const [state, setState] = useState({ loading: true });
+  const [open, setOpen] = useState(true);
+
+  useEffect(() => {
+    let url = null;
+    let alive = true;
+    setState({ loading: true });
+    api.resumeFile(cid)
+      .then((f) => {
+        if (!alive) return;
+        if (f.data) url = URL.createObjectURL(toBlob(f.data, f.content_type));
+        setState({ file: f, url });
+      })
+      .catch((err) => alive && setState({ error: err.message }));
+    return () => {
+      alive = false;
+      if (url) URL.revokeObjectURL(url);
+    };
+  }, [cid]);
+
+  const f = state.file;
+  const isPdf = f?.content_type === "application/pdf";
+  const kb = f?.size ? `${Math.max(1, Math.round(f.size / 1024))} KB` : "";
+
+  return (
+    <Section
+      title="Resume file"
+      right={f && (
+        <span className="row" style={{ gap: 6 }}>
+          {state.url && isPdf && <a className="btn sm ghost" href={state.url} target="_blank" rel="noreferrer">Open</a>}
+          {state.url && <a className="btn sm ghost" href={state.url} download={f.name}>Download</a>}
+          <button className="btn sm ghost" onClick={() => setOpen(!open)}>{open ? "Hide" : "Show"}</button>
+        </span>
+      )}
+    >
+      {state.loading ? (
+        <div className="faint small row"><Spinner /> Loading the resume…</div>
+      ) : state.error ? (
+        <div className="faint small">The original file isn't available: {state.error}</div>
+      ) : (
+        <>
+          <div className="small muted">{f.name}{kb && ` · ${kb}`} · as the candidate applied</div>
+          {open && (isPdf && state.url ? (
+            <iframe className="resume-frame" src={state.url} title={`Resume: ${f.name}`} />
+          ) : f.text ? (
+            <div className="resume-text">{f.text}</div>
+          ) : (
+            <div className="faint small">No preview for this file: use Download.</div>
+          ))}
+        </>
+      )}
+    </Section>
   );
 }

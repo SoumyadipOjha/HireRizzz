@@ -15,7 +15,7 @@ from typing import Literal
 
 # Logical collections. The file backend maps each to a folder in the data dir.
 Collection = Literal["stage1_extracted", "stage2_shortlist", "stage3_calls", "stage4_evaluation", "sessions",
-                     "credibility", "jobs"]
+                     "credibility", "jobs", "resume_files"]
 TextCollection = Literal["transcripts"]
 
 MONGO_PREFIX = "mongodb://"

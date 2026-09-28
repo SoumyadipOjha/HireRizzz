@@ -306,8 +306,13 @@ def _resume_text(config, entry) -> str | None:
 
     try:
         return read_resume(resolve_stored(entry.source_file))
-    except Exception:  # file gone (e.g. ephemeral disk on a host): checks that need text are skipped
-        return None
+    except Exception:  # file gone (e.g. ephemeral disk on a host): use the stored copy's text
+        from .resume_files import stored_text
+
+        try:
+            return stored_text(config.store, entry.candidate_id)
+        except Exception:
+            return None
 
 
 def build_record(config, entry, *, linkedin_profile: ResumeExtractionLLM | None = None,
